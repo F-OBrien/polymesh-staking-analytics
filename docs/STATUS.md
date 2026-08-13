@@ -3,7 +3,7 @@
 Working notes for picking this up cold. The plan is `REBUILD-DESIGN.md`; this
 file is only *where we are* and *what to watch out for*.
 
-**Branch:** `claude/polymesh-staking-rebuild-tetxaz` · **Last phase:** 7 of 8
+**Repo:** `F-OBrien/polymesh-staking-analytics` · **Branch:** `main` · **Last phase:** 7 of 8, deployed
 
 ---
 
@@ -39,8 +39,12 @@ sections below — that work found more real bugs than any phase.
 
 Read this section, then §"Next: Phase 8". Everything else is reference.
 
-**Where the work happens:** branch `claude/polymesh-staking-rebuild-tetxaz`.
-Never push to another branch without asking. Do not open a PR unless asked.
+**Where the work happens:** `main` on
+[`F-OBrien/polymesh-staking-analytics`](https://github.com/F-OBrien/polymesh-staking-analytics).
+The rebuild moved out of `polymesh-staking-app` once it was deployable, so that
+the live site could stay up while this one was tested end to end. That old
+repository is still reachable as the `old` remote and still serves the previous
+app; nothing here should push to it.
 
 **Before anything else:** `npm ci`, then `npm run fixtures` if `public/data` is
 empty. The build *fails* without that directory — see open item 7. If it
@@ -68,12 +72,27 @@ bug that review did not:
 | `npm run probe:indexer-caps` | page-size cap, server-side aggregates, era-transition events |
 | `npm run probe:archive` | that pruned era storage still reads at a historical block |
 
-**Local data state:** `public/data` holds a real mainnet ingest, eras 1664–1748,
-86 operators, plus `latest.json`, `slashes.json` (`scope: Validator`, zero
-offences) and `era-index.json` (all 1,749 eras, 34 KB). It is gitignored. The `data` branch on GitHub is **still empty** —
-nothing is deployed yet. Populating it is either the `Ingest era` workflow once
-this is merged to `main`, or a deliberate push of `public/data` to that branch.
-That decision is the user's; it has not been made.
+**It is deployed:** <https://f-obrien.github.io/polymesh-staking-analytics/>.
+Pages is set to the `workflow` build type, so `pages.yml` owns the deploy; there
+is no `gh-pages` branch.
+
+**Local data state:** `public/data` is a *checkout of the `data` branch*, not a
+loose directory — it has its own `.git`, which is what lets the ingest workflows
+commit into it. It holds the full mainnet backfill, eras 1–1749 across 55
+chunks, plus `latest.json`, `offences.json` (36 incidents), `slashes.json`
+(`scope: Validator`, zero events) and `era-index.json`. It is gitignored from
+the source tree.
+
+The branch was seeded by hand from the local backfill rather than left to the
+hourly workflow, which only reaches back one history depth (~84 eras) and would
+have started the branch four and a half years short. Both schedules are live and
+verified: `Snapshot latest` every 15 minutes, `Ingest era` at :17, each pushing
+to `data` and triggering a Pages redeploy through `workflow_run`.
+
+**The workflow token is repo-default `read`,** and the two ingest workflows
+declare `permissions: contents: write` at the workflow level. That does override
+the default — confirmed by a manual `Snapshot latest` run that pushed to `data`
+successfully. Worth knowing before anyone "fixes" the repository setting.
 
 ### The single most useful lesson from this session
 
