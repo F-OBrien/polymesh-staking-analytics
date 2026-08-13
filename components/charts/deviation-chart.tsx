@@ -40,6 +40,14 @@ export interface DeviationItem {
   detail?: string;
   /** Palette colour when this category is pinned; overrides the direction hue. */
   highlight?: string | undefined;
+  /**
+   * Draw this one back, as a category that is no longer a live choice.
+   *
+   * An operator that has left the set still belongs in a chart of what the
+   * range paid — the history is real — but it is not something a reader can act
+   * on, and at full strength it competes for attention with the ones that are.
+   */
+  muted?: boolean | undefined;
 }
 
 export interface DeviationChartProps {
@@ -57,6 +65,13 @@ export interface DeviationChartProps {
   bandLabel?: string;
   /** Column heading for `value` in the table view. */
   valueLabel?: string;
+  /**
+   * The three verdicts, when "expected" is the wrong word for the baseline.
+   *
+   * A chart of what an operator *paid* has no expectation to be above or below
+   * — the baseline is the field, and the reading should say so.
+   */
+  readings?: Readings;
   height?: number;
   loading?: boolean | undefined;
   error?: Error | null | undefined;
@@ -78,6 +93,7 @@ export function DeviationChart({
   tickFormat,
   bandLabel = 'Within the margin of error',
   valueLabel = 'Value',
+  readings = DEFAULT_READINGS,
   height: requestedHeight = 300,
   loading = false,
   error,
@@ -120,7 +136,13 @@ export function DeviationChart({
       </thead>
       <tbody>
         {items.map((item, i) => (
-          <tr key={item.id} style={{ borderTop: '1px solid var(--border)' }}>
+          <tr
+            key={item.id}
+            style={{
+              borderTop: '1px solid var(--border)',
+              ...(item.muted ? { color: 'var(--text-muted)' } : {}),
+            }}
+          >
             <td className="p-2 text-left" style={{ color: 'var(--text-muted)' }}>
               {i + 1}
             </td>
@@ -131,7 +153,7 @@ export function DeviationChart({
             <td className="p-2 text-right" style={{ color: 'var(--text-muted)' }}>
               {format(item.low)} – {format(item.high)}
             </td>
-            <td className="p-2 text-left">{reading(item)}</td>
+            <td className="p-2 text-left">{reading(item, readings)}</td>
           </tr>
         ))}
       </tbody>
@@ -158,6 +180,7 @@ export function DeviationChart({
         yLabel={yLabel}
         format={format}
         tickFormat={tickFormat}
+        readings={readings}
         requestedHeight={requestedHeight}
       />
     </ChartFrame>
@@ -182,11 +205,13 @@ function DeviationPlot({
   yLabel,
   format,
   tickFormat,
+  readings,
   requestedHeight,
 }: Pick<
   DeviationChartProps,
   'items' | 'baseline' | 'title' | 'yLabel' | 'format' | 'tickFormat'
 > & {
+  readings: Readings;
   requestedHeight: number;
 }) {
   const titleId = useId();
@@ -273,15 +298,17 @@ function DeviationPlot({
                 const zero = y(baseline);
                 const outside = item.value > item.high || item.value < item.low;
                 const above = item.value >= baseline;
-                const fill =
-                  item.highlight ??
-                  (outside
-                    ? above
-                      ? 'var(--div-pos-strong)'
-                      : 'var(--div-neg-strong)'
-                    : above
-                      ? 'var(--div-pos)'
-                      : 'var(--div-neg)');
+                const fill = item.muted
+                  ? 'var(--text-muted)'
+                  : (item.highlight ??
+                    (outside
+                      ? above
+                        ? 'var(--div-pos-strong)'
+                        : 'var(--div-neg-strong)'
+                      : above
+                        ? 'var(--div-pos)'
+                        : 'var(--div-neg)'));
+                const dimmed = focus != null && focus !== i;
                 return (
                   <rect
                     key={item.id}
@@ -290,7 +317,7 @@ function DeviationPlot({
                     width={barWidth}
                     height={Math.max(1, Math.abs(zero - top))}
                     fill={fill}
-                    opacity={focus == null || focus === i ? 1 : 0.4}
+                    opacity={dimmed ? 0.4 : item.muted ? 0.55 : 1}
                     onMouseEnter={() => setFocus(i)}
                   />
                 );
@@ -321,7 +348,7 @@ function DeviationPlot({
             aria-live="polite"
           >
             {focused
-              ? `${focused.label}: ${format(focused.value)} — ${reading(focused)}${
+              ? `${focused.label}: ${format(focused.value)} — ${reading(focused, readings)}${
                   focused.detail ? ` · ${focused.detail}` : ''
                 }`
               : ''}
@@ -338,14 +365,26 @@ function DeviationPlot({
 /**
  * The one-phrase verdict, shared by the hover readout and the table.
  *
- * Only three outcomes, and "as expected" covers everything inside the band
+ * Only three outcomes, and the middle one covers everything inside the band
  * regardless of which side of the baseline it falls. That is the whole
  * argument: a bar half a standard error above the line is not "slightly
  * better", it is indistinguishable, and giving it its own wording would
  * reintroduce the ranking of noise this chart exists to prevent.
  */
-function reading(item: DeviationItem): string {
-  if (item.value > item.high) return 'above expected';
-  if (item.value < item.low) return 'below expected';
-  return 'as expected';
+export interface Readings {
+  above: string;
+  below: string;
+  within: string;
+}
+
+const DEFAULT_READINGS: Readings = {
+  above: 'above expected',
+  below: 'below expected',
+  within: 'as expected',
+};
+
+function reading(item: DeviationItem, readings: Readings): string {
+  if (item.value > item.high) return readings.above;
+  if (item.value < item.low) return readings.below;
+  return readings.within;
 }

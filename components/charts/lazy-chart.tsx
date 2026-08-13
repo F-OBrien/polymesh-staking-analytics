@@ -41,6 +41,11 @@ const XyLineChartImpl = dynamic(() => import('./xy-line-chart').then((m) => m.Xy
   loading: () => null,
 });
 
+const StackedAreaChartImpl = dynamic(
+  () => import('./stacked-area-chart').then((m) => m.StackedAreaChart),
+  { ssr: false, loading: () => null },
+);
+
 const TimeBarChartImpl = dynamic(() => import('./time-bar-chart').then((m) => m.TimeBarChart), {
   ssr: false,
   loading: () => null,
@@ -128,6 +133,9 @@ export const LazyXyLineChart = XyLineChartImpl;
 
 /** Bars over a time axis, with an optional companion panel. Code-split. */
 export const LazyTimeBarChart = TimeBarChartImpl;
+
+/** A quantity over time, divided into parts that sum to the whole. */
+export const LazyStackedAreaChart = StackedAreaChartImpl;
 
 /** A field of categories diverging from a baseline, over a tolerance band. */
 export const LazyDeviationChart = DeviationChartImpl;
