@@ -9,7 +9,7 @@ import type { NextConfig } from 'next';
  * `NEXT_PUBLIC_BASE_PATH` must be empty or start with `/` and must not end
  * with one, which is what Next expects.
  */
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/polymesh-staking-app';
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/polymesh-staking-analytics';
 
 const nextConfig: NextConfig = {
   output: 'export',

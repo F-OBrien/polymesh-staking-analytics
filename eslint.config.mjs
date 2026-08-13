@@ -19,15 +19,7 @@ const config = [
   ...coreWebVitals,
   ...nextTypescript,
   {
-    ignores: [
-      'legacy/**',
-      'out/**',
-      '.next/**',
-      'node_modules/**',
-      'public/data/**',
-      'data/**',
-      'coverage/**',
-    ],
+    ignores: ['out/**', '.next/**', 'node_modules/**', 'public/data/**', 'data/**', 'coverage/**'],
   },
   {
     rules: {

@@ -18,6 +18,7 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { stripBasePath } from '../config/site';
 import { gzipSync } from 'node:zlib';
 
 const OUT_DIR = 'out';
@@ -119,7 +120,10 @@ async function main(): Promise<void> {
 
     for (const ref of refs) {
       // Strip the basePath: refs are absolute URLs, `out/` is its root.
-      const path = join(OUT_DIR, ref.replace(/^\/polymesh-staking-app/, ''));
+      // Read from config rather than written out again — a second copy of the
+      // base path goes stale silently, and the failure mode is every script
+      // resolving to nothing and the route reporting 0 KB.
+      const path = join(OUT_DIR, stripBasePath(ref));
       try {
         await stat(path);
         bytes += await gzipSize(path);

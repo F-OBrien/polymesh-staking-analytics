@@ -18,6 +18,7 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { stripBasePath } from '../config/site';
 
 const OUT_DIR = 'out';
 
@@ -132,7 +133,7 @@ async function main(): Promise<void> {
     routesChecked += 1;
 
     for (const ref of eagerScripts(await readFile(file, 'utf8'))) {
-      const path = join(OUT_DIR, ref.replace(/^\/polymesh-staking-app/, ''));
+      const path = join(OUT_DIR, stripBasePath(ref));
       try {
         await stat(path);
       } catch {

@@ -10,11 +10,26 @@ export const SITE = {
   shortName: 'Polymesh Staking',
   description:
     'Track staking on Polymesh: operator performance, rewards, network health, and your own position.',
-  repository: 'https://github.com/F-OBrien/polymesh-staking-app',
+  repository: 'https://github.com/F-OBrien/polymesh-staking-analytics',
 } as const;
 
 /** Matches `basePath` in next.config.ts. Empty string, or a path with a leading slash. */
-export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '/polymesh-staking-app';
+export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '/polymesh-staking-analytics';
+
+/**
+ * Removes the base path from an absolute site URL, giving a path relative to
+ * the export root.
+ *
+ * For the build scripts, which walk `out/` and resolve the `<script src>` refs
+ * in the emitted HTML. They each carried their own copy of the base path in a
+ * regex, which survived the move to this repository only because it was
+ * grepped for: a stale copy resolves every script to a missing file, and both
+ * scripts treat a missing file as "nothing to weigh" rather than as an error —
+ * so the budget would have reported every route at 0 KB and passed.
+ */
+export function stripBasePath(url: string): string {
+  return BASE_PATH !== '' && url.startsWith(BASE_PATH) ? url.slice(BASE_PATH.length) : url;
+}
 
 /**
  * Where the generated data files live. Defaults to the site's own origin, which

@@ -107,8 +107,6 @@ Every page now exists. What remains is the work that makes it shippable:
   Charts and the two hand-rolled tables are where to look hardest.
 - **Performance audit** against every §11 budget. `npm run budget` covers JS;
   LCP, INP, CLS and Lighthouse are still `‹measure›` in the design doc.
-- **Delete `legacy/`.** It has served its purpose as a porting reference, and
-  it is the source of the 64 Dependabot alerts on the default branch.
 - **Restore the full knip check** — see item 3 below. This is an acceptance
   criterion, not a tidy-up.
 - **Rewrite `README.md`**, and record a before/after comparison in
@@ -849,17 +847,28 @@ The lesson: **a value import from a chart or widget module drags its whole
 dependency in.** Type-only imports are fine — they are erased. If you need a
 constant, put it somewhere with no imports; if you need a widget, split it.
 
-### 2. `legacy/` still present
+### 2. `legacy/` is gone
 
-The previous app is preserved for reference while porting. Phase 8 deletes it.
+The previous app was preserved for reference while porting, and was deleted in
+the move to this repository. It was the source of every Dependabot alert on the
+old default branch, so this one starts clean. It is still readable in the
+`polymesh-staking-app` repository if a porting question ever comes up.
 
 ### 3. knip is scoped down
 
-`knip.jsonc` currently checks only unused *files* and duplicates, and `config/`
-sits outside the project glob — both because modules are written a phase ahead
-of their consumers. **Phase 8 must restore the full check.** This is an
-acceptance criterion, not a tidy-up: dead code was a real problem in the old app
-(625 unused lines in one file).
+`knip.jsonc` still checks only unused *files* and duplicates. `config/` is now
+inside the project glob and the `legacy/` ignore is gone, so what remains is
+`include`. **Removing it is an acceptance criterion, not a tidy-up:** dead code
+was a real problem in the old app (625 unused lines in one file).
+
+Measured with the key removed: **38 unused exports, 22 unused exported types,
+5 unused dependencies** (`d3-array`, `@types/d3-array`, `esbuild`, `playwright`,
+`tailwindcss`). Most exist for tests or for symmetry with a sibling that is
+used, so each needs a decision rather than a delete. Two are worth knowing
+about before anyone deletes anything: `playwright` is a devDependency with no
+config or specs yet — it is what the §12 a11y and visual-regression work will
+need — and `tailwindcss` is consumed through `@tailwindcss/postcss`, not
+imported.
 
 ### 4. Every nav route now exists
 
@@ -1124,12 +1133,12 @@ Run it by hand; see the backfill section above before you do.
 `budget` and `assert:lazy` read `out/`, so run `npm run build` first.
 
 To preview the static export, serve it under the base path — the app is built
-for `/polymesh-staking-app`, so serving `out/` at the root 404s:
+for `/polymesh-staking-analytics`, so serving `out/` at the root 404s:
 
 ```bash
-mkdir -p /tmp/site && ln -sfn "$PWD/out" /tmp/site/polymesh-staking-app
+mkdir -p /tmp/site && ln -sfn "$PWD/out" /tmp/site/polymesh-staking-analytics
 npx serve /tmp/site -l 4180
-# → http://localhost:4180/polymesh-staking-app/
+# → http://localhost:4180/polymesh-staking-analytics/
 ```
 
 Real mainnet data compresses about twice as well as the synthetic fixtures

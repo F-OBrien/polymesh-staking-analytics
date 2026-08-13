@@ -1159,7 +1159,7 @@ All nine opening questions are **resolved**. These are settled inputs — build 
 | Q4 | Refresh cadence? | **Two jobs.** Hourly `ingest-era` that no-ops unless `activeEra` advanced; 30-minute `snapshot-latest` for live state only. Era data moves once per 24h, so a blanket 30-min full run was 48 wasted runs a day | §6.3 |
 | Q5 | Indexer endpoint and limits? | **Endpoints confirmed** (`https://mainnet-graphql.polymesh.network/`). Limits exist but are unpublished, so the client treats the indexer as unreliable by design: paginate at 100, backoff on 429, degrade gracefully | §6.2 |
 | Q6 | Testnet selectable? | **Mainnet only.** Testnet via env vars for local dev. No UI switcher — the current wallet-driven switching is removed as a correctness hazard | §6.2 |
-| Q7 | Base path? | **Keep `/polymesh-staking-app`**, read from config, never hardcoded | §6.3 |
+| Q7 | Base path? | **`/polymesh-staking-analytics`**, read from config, never hardcoded. Revised when the rebuild moved to its own repository — it was `/polymesh-staking-app` while it was replacing that app in place, and the point of the answer was always "read it from config", which is what made the change a one-line default | §6.3 |
 | Q8 | Signing in scope? | **Read-only.** Confirmed | §9.6 |
 | Q9 | History beyond `historyDepth`? | **Yes, and now viable** — the public RPCs are archive nodes, so no node of our own is needed. ~1,700 eras available. Backfill is additive, provenance-tagged, run once by hand. The client is built for unbounded history from Phase 2 so timing is free | §6.5, §6.5a |
 
