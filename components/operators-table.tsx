@@ -95,8 +95,10 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
             : elapsed >= 60
               ? ` The era is ${elapsed}% elapsed, so this is close to settled.`
               : ` The era is just ${elapsed}% elapsed, so treat it as a rough signal.`}{' '}
-          Blocks are awarded at random, so an operator can lead on luck alone — check Last era and
-          Typical era too.
+          Blocks are awarded at random, so an operator can lead on luck alone. An operator holding
+          less stake than the rest of the field also shows a higher rate here, because the same
+          rewards are divided fewer ways — nominating it is what removes that advantage. Check Last
+          era and Typical era too.
         </>
       ),
     },
@@ -227,10 +229,23 @@ export function OperatorsTable({
   liveControl,
   onClearPins,
 }: OperatorsTableProps) {
-  // Default sort is this era's estimated return: the table exists to answer
-  // "who should I nominate?", and stake — the old default — is nearly identical
-  // across the whole field because the election equalises it.
-  const [sortKey, setSortKey] = useState<SortKey>('aprThisEra');
+  /**
+   * Default sort is the typical era's return.
+   *
+   * The table exists to answer "who should I nominate?", so it is not sorted by
+   * stake — the election equalises that, and the whole field sits within a few
+   * percent of each other. It was sorted by *this era's* estimate, which is
+   * worse than it sounds: measured at era 1751, the top two rows were operators
+   * holding 2.1M and 2.4M against a median of 6.55M, reading 54.57% and 41.67%.
+   * Both figures are correct — a smaller stake divides the same rewards fewer
+   * ways — and both are the opposite of a reason to nominate, because adding
+   * stake is precisely what removes the advantage. Leading a public page with
+   * them invites the one mistake this table should prevent.
+   *
+   * Typical era is stable, representative, and still answers the question. A
+   * reader who wants the live view clicks the column.
+   */
+  const [sortKey, setSortKey] = useState<SortKey>('aprMedian');
   const [direction, setDirection] = useState<SortDirection>('desc');
   const [filters, setFilters] = useState<OperatorFilters>({ status: 'active' });
   const [basis, setBasis] = useState<CommissionBasis>('net');
