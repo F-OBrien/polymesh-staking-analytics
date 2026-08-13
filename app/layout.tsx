@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
-import { SITE } from '@/config/site';
+import { absoluteUrl, SITE } from '@/config/site';
 import { THEME_INIT_SCRIPT } from '@/lib/theme';
 import { Footer } from '@/components/footer';
 import { Nav } from '@/components/nav';
@@ -31,6 +31,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  // Absolute, so Open Graph tags and the canonical link resolve for a client
+  // that has never heard of our base path — which is every chat client a link
+  // gets pasted into.
+  metadataBase: new URL(absoluteUrl('/')),
   title: {
     default: SITE.name,
     template: `%s · ${SITE.shortName}`,
@@ -40,7 +44,16 @@ export const metadata: Metadata = {
   openGraph: {
     title: SITE.name,
     description: SITE.description,
+    siteName: SITE.name,
+    url: absoluteUrl('/'),
     type: 'website',
+    images: [{ url: 'og.png', width: 1200, height: 630, alt: SITE.name }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE.name,
+    description: SITE.description,
+    images: ['og.png'],
   },
   robots: { index: true, follow: true },
 };

@@ -14,10 +14,9 @@ export default function OperatorsPage() {
   return (
     <main id="main">
       <HeadingWithTip as="h1" title="Operators" lead="Every operator, ranked and filterable.">
-        Returns are labelled with the period they cover and whether commission has been taken off,
-        because those two things change the number more than the operator does. Sort by steadiness
-        to find operators whose return does not swing — two with the same average are not equivalent
-        if one of them halves some weeks.
+        Every return column says which period it covers and whether commission has been taken off —
+        those two things change the number more than the choice of operator does. Hover the ⓘ on any
+        column heading for what it measures.
       </HeadingWithTip>
 
       {/* Both the era range and the pinned selection live in the URL, so this

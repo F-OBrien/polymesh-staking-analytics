@@ -1,4 +1,5 @@
 import { deriveOperatorApr } from '@/lib/metrics/derive';
+import { median } from '@/lib/metrics/stats';
 import type { Chunk, NetworkSeries, OperatorSeries } from '@/lib/schemas/data';
 
 /**
@@ -193,8 +194,13 @@ export type RankKey = keyof OperatorSeries | 'aprNet' | 'aprGross';
  * Operators present in the series, ordered by a metric.
  *
  * Raw columns rank on their most recent value; the derived returns rank on
- * their *mean* over the range, since a single era's return is noisy enough
+ * their *median* over the range, since a single era's return is noisy enough
  * that the top of a latest-value ranking would reshuffle daily.
+ *
+ * A median, not a mean, for the reason given in `lib/metrics/stats.ts`: an
+ * operator's first era in the set pays a multiple of everything after it, so a
+ * mean put two nodes that had joined weeks earlier at the top of the default
+ * five — and this ranking is what the charts open on.
  *
  * Used to pick a default selection when nothing is pinned and no wallet is
  * connected — the charts should never open empty.
@@ -215,22 +221,11 @@ export function rankOperators(
     return null;
   };
 
-  const average = (values: readonly (number | null)[]): number | null => {
-    let sum = 0;
-    let count = 0;
-    for (const value of values) {
-      if (value != null && Number.isFinite(value)) {
-        sum += value;
-        count += 1;
-      }
-    }
-    return count === 0 ? null : sum / count;
-  };
 
   const score = (columns: OperatorSeries): number | null => {
     if (key === 'aprNet' || key === 'aprGross') {
       const apr = deriveOperatorApr(columns, series.network, erasPerYear);
-      return average(key === 'aprNet' ? apr.net : apr.gross);
+      return median(key === 'aprNet' ? apr.net : apr.gross);
     }
     return latest(columns[key]);
   };

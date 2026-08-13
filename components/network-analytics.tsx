@@ -208,10 +208,9 @@ export function NetworkAnalytics() {
           title="Chain status"
           lead="Where the era and session cycle has got to."
         >
-          Everything here except the election phase is derived in your browser from the snapshot’s
-          anchors against your own clock, so it ticks continuously and costs no network traffic.
-          That is why the era and session progress move smoothly rather than jumping every fifteen
-          minutes when a new snapshot lands.
+          An era is one day, and rewards are calculated and paid at the end of each one. Sessions
+          are shorter periods within an era; the validator set can only change at a session
+          boundary, and the election that picks the next set runs in the final session.
         </HeadingWithTip>
         <EraStatus />
       </section>

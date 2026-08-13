@@ -17,6 +17,22 @@ export const SITE = {
 export const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '/polymesh-staking-analytics';
 
 /**
+ * Absolute origin, for the handful of places a relative URL will not do.
+ *
+ * Open Graph and the sitemap both need fully-qualified URLs — a link shared in
+ * a chat client is resolved by that client, which has no idea what our base
+ * path is. Everything else on the site uses relative URLs, so this is the only
+ * value that has to know where the site is actually hosted.
+ */
+export const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? 'https://f-obrien.github.io';
+
+/** Fully-qualified URL for a route path such as `/operators/`. */
+export function absoluteUrl(path = '/'): string {
+  const clean = path.startsWith('/') ? path : `/${path}`;
+  return `${SITE_ORIGIN}${BASE_PATH}${clean === '/' ? '/' : clean}`;
+}
+
+/**
  * Removes the base path from an absolute site URL, giving a path relative to
  * the export root.
  *

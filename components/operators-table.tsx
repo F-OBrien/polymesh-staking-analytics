@@ -86,26 +86,17 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
       numeric: true,
       help: (
         <>
-          <strong>Forward-looking.</strong> Annualised return implied by the points this operator
-          has scored so far in the era now running, against the stake currently backing it —{' '}
-          {suffix}.
-          <br />
-          <br />A share of points is meaningful before an era ends even though the count is not,
-          because points accrue roughly evenly. But block authorship is random in the short run, so
-          the figure is noisy early on and firms up through the day.
+          <strong>An estimate for the era now running,</strong> {suffix}, from the points scored so
+          far against the stake backing this operator.
           {/* "Only 92% elapsed" would be nonsense; the reading changes with
               the number, so the sentence has to as well. */}
           {elapsed == null
-            ? ''
+            ? ' It is rough early in an era and firms up through the day.'
             : elapsed >= 60
               ? ` The era is ${elapsed}% elapsed, so this is close to settled.`
               : ` The era is just ${elapsed}% elapsed, so treat it as a rough signal.`}{' '}
-          Either way, sorting by it puts the operators that have been <em>lucky</em> so far near the
-          top alongside the ones genuinely performing — compare against Last era and Typical era
-          before reading much into it.
-          <br />
-          <br />
-          Turn on Live to have it update as each block arrives rather than every 15 minutes.
+          Blocks are awarded at random, so an operator can lead on luck alone — check Last era and
+          Typical era too.
         </>
       ),
     },
@@ -133,10 +124,9 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
       help: (
         <>
           <strong>The long view.</strong> The middle of the per-era returns across the era range
-          selected above{rangeEras != null ? ` — ${rangeEras} eras` : ''}, {suffix}. A median rather
-          than an average, because an operator&rsquo;s first era in the set pays on its own bond
-          with no nominators: one Huobi node earning 18–25% all year averaged 48.59% on the strength
-          of a single era that paid 2,474%.
+          selected above{rangeEras != null ? ` — ${rangeEras} eras` : ''}, {suffix}. The middle
+          value rather than the average: a new operator&rsquo;s very first era pays many times the
+          normal rate, and averaging that in would flatter it for months afterwards.
         </>
       ),
     },
@@ -148,10 +138,8 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
       hideBelow: 'md',
       help: (
         <>
-          How far a typical era sits from this operator&rsquo;s middle, over the selected range —
-          lower is steadier. Two operators with the same typical return are not equivalent if one of
-          them halves some weeks. Measured robustly, like the column beside it: squaring the
-          deviations let one first era report a steady node as &plusmn;188%.
+          How much the return moves from era to era — lower is steadier. Two operators with the same
+          typical return are not equivalent if one of them halves some weeks.
         </>
       ),
     },
@@ -165,8 +153,8 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
       help: (
         <>
           Reward points scored so far in the era now running. Rising points mean the node is
-          producing blocks; a flat zero well into an era means it is not. With Live on this updates
-          every block, which is the quickest confirmation that an operator is healthy.
+          producing blocks; a flat zero well into an era means it is not. Turn on Live to watch it
+          update block by block.
         </>
       ),
     },

@@ -35,6 +35,7 @@
     "probe:offences": "tsx scripts/probe/offences.ts",
     "check": "npm run typecheck && npm run lint && npm run test",
     "fixtures": "tsx scripts/fixtures/generate.ts",
+    "og": "tsx scripts/brand/og-image.ts",
     "ingest:era": "tsx scripts/ingest/era.ts",
     "ingest:latest": "tsx scripts/ingest/latest.ts",
     "ingest:backfill": "tsx scripts/ingest/backfill.ts",

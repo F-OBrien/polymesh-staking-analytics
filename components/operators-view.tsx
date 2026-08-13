@@ -203,16 +203,15 @@ export function OperatorsView() {
         >
           {selected.length > 0 ? (
             <>
-              Shown against the whole field, so a line can be judged in context rather than in
-              isolation. Colours follow the operator, so they stay the same on every page and a
-              filter change never repaints them.
+              Shown against the whole field, so a line can be read in context rather than in
+              isolation. Each operator keeps its colour across every page of the site.
             </>
           ) : (
             <>
-              Ranked by mean return after commission over the era range selected above. Note that
-              ranking operators by <em>stake</em> would not tell you much on Polymesh: the election
-              spreads stake almost evenly, so the whole active set sits within a few percent of each
-              other.
+              Ranked by their typical era&rsquo;s return after commission, over the era range
+              selected above. Ranking by <em>stake</em> would tell you little on Polymesh: the
+              election spreads stake almost evenly, so the whole active set sits within a few
+              percent of each other.
             </>
           )}
         </HeadingWithTip>

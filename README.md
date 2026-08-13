@@ -1,34 +1,108 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Polymesh Staking Analytics
 
-## Getting Started
+**<https://f-obrien.github.io/polymesh-staking-analytics/>**
 
-First, run the development server:
+Staking analytics for the [Polymesh](https://polymesh.network/) blockchain: what
+the network pays, how every operator is performing, and what one address has
+actually earned.
+
+A community project. Not affiliated with Polymesh Labs, and not financial
+advice.
+
+---
+
+## What it does
+
+- **Network** — return after commission, inflation against the fixed yearly
+  reward, stake, participation and decentralisation, over the chain's whole
+  history.
+- **Operators** — every validator, with three return figures that each say which
+  period they cover, plus commission, self-stake, steadiness, reliability and
+  block production measured against what the authorship lottery predicts.
+- **My staking** — paste any address, or connect a wallet. Bonded and unbonding
+  amounts, which operators the stake is actually behind, every payout it has
+  received, and whether the choice of operators has been worth anything.
+- **Calculator** — projected rewards for an amount and an operator, based on
+  that operator's measured history rather than a headline rate.
+- **Slashing** — every offence the chain has reported, what it cost, and what a
+  penalty would cost if one were applied.
+
+Read-only throughout. Nothing here asks you to sign a transaction.
+
+## How it works
+
+The site is a static export served from GitHub Pages. It reads pre-computed
+JSON rather than pulling the chain's history into every visitor's browser, which
+is what makes a five-year range load in a few kilobytes.
+
+| Tier | Source | Freshness |
+| --- | --- | --- |
+| Era history | `data` branch, one immutable file per 32 eras | daily, when an era completes |
+| Snapshot | `latest.json` | every 15 minutes |
+| Derived | computed in the browser from the two above | instant |
+| Live | optional WebSocket to a public RPC node | per block, opt-in |
+
+Two scheduled workflows write to the orphan `data` branch and trigger a
+redeploy. Chunk URLs carry a content hash, so a completed era's data is cached
+permanently and a revised one can never be served under the old name.
+
+Every figure comes from public chain data or the public indexer. The
+[methodology page](https://f-obrien.github.io/polymesh-staking-analytics/about/)
+sets out each formula, including the reward curve constants, the inflation cap
+and how the commission-weighted average is taken.
+
+## Running it locally
+
+Requires Node 22 or later.
 
 ```bash
-npm run dev
-# or
-yarn dev
+npm ci
+npm run fixtures   # synthetic data, if you have no ingested data yet
+npm run dev        # http://localhost:3005/polymesh-staking-analytics/
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`public/data` is gitignored. `npm run fixtures` writes a deterministic synthetic
+dataset there; it refuses to overwrite real ingested data. To work against
+mainnet instead, check out the `data` branch into that directory:
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+```bash
+git clone --branch data --single-branch \
+  https://github.com/F-OBrien/polymesh-staking-analytics.git public/data
+```
 
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+### Checks
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
+```bash
+npm run format:check && npm run check && npm run knip && npm run build && npm run budget && npm run assert:lazy
+```
 
-## Learn More
+`check` is typecheck, lint and tests. `budget` enforces a 200 KB gzipped
+per-route JavaScript limit, and `assert:lazy` proves the Polkadot stack is not
+loaded until a wallet is connected — both read `out/`, so they need a build
+first.
 
-To learn more about Next.js, take a look at the following resources:
+### Data pipeline
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run ingest:era        # the completed era, plus latest.json and the rollup
+npm run ingest:latest     # the 15-minute snapshot only
+npm run ingest:offences   # reported offences, from the indexer
+npm run ingest:backfill   # history older than the chain's retention window
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
+`scripts/probe/` holds read-only scripts that check assumptions against live
+mainnet. Every one of them has found a bug that code review did not — if you
+write anything chain-facing here, run it against the chain before believing it.
 
-## Deploy on Vercel
+## Documentation
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- [`docs/REBUILD-DESIGN.md`](docs/REBUILD-DESIGN.md) — the design contract:
+  audiences, information architecture, chart catalogue, data tiers, budgets.
+- [`docs/STATUS.md`](docs/STATUS.md) — working notes: what is done, what is
+  outstanding, and the mistakes worth not repeating.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+## Stack
+
+Next.js (App Router, `output: export`), TypeScript in strict mode, Tailwind,
+TanStack Query, Zod, and charts rendered as SVG from d3 submodules — no chart
+library.
