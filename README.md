@@ -106,3 +106,15 @@ write anything chain-facing here, run it against the chain before believing it.
 Next.js (App Router, `output: export`), TypeScript in strict mode, Tailwind,
 TanStack Query, Zod, and charts rendered as SVG from d3 submodules — no chart
 library.
+
+## Licence
+
+[Apache-2.0](LICENSE).
+
+Chosen over MIT for two things it adds: an express patent grant, and a
+requirement that modified files say they have been changed. This is a dashboard
+people may use to decide where to stake, so a fork being identifiable as a fork
+matters more here than the extra paragraph costs.
+
+Nothing in the licence conveys rights in the Polymesh name or marks. This is a
+community project and is not affiliated with Polymesh Labs.
