@@ -11,6 +11,7 @@ import { buildLabeller } from '@/lib/data/operator-label';
 import { OperatorsTable } from '@/components/operators-table';
 import { ProductionChart } from '@/components/production-chart';
 import { ReturnsChart } from '@/components/returns-chart';
+import { ReturnFactorsChart } from '@/components/return-factors-chart';
 import { CommissionSpread } from '@/components/commission-spread';
 import { LazyChart, LazyEraSeriesChart } from '@/components/charts/lazy-chart';
 import { HeadingWithTip } from '@/components/info-tip';
@@ -280,6 +281,33 @@ export function OperatorsView() {
         </HeadingWithTip>
 
         <ReturnsChart
+          series={series}
+          erasPerYear={erasPerYear}
+          nameOf={nameOf}
+          statusOf={statusOf}
+          selected={selected}
+          loading={isLoading}
+          error={chartError}
+        />
+      </section>
+
+      <section aria-labelledby="factors-heading" className="mt-12">
+        <HeadingWithTip
+          as="h2"
+          id="factors-heading"
+          className="mb-4"
+          title="What explains the difference"
+        >
+          The same operators as above, with the gap between them broken into its causes. Two of the
+          three last: an operator&rsquo;s block production and its commission are much the same
+          month to month. The third — how much stake it is sharing the reward with — is the widest
+          of them and the least repeatable, because the election rebalances it and because
+          nominating an under-staked operator is itself what removes the advantage. It is drawn
+          faintly for that reason, and left out of the default ordering — which the Sort control
+          names, and can change.
+        </HeadingWithTip>
+
+        <ReturnFactorsChart
           series={series}
           erasPerYear={erasPerYear}
           nameOf={nameOf}
