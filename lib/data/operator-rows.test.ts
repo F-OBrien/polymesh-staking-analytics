@@ -309,4 +309,27 @@ describe('rowsToCsv', () => {
     const csv = rowsToCsv([row({ address: 'a', name: 'A', aprMedian: null })]);
     expect(csv).not.toContain('null');
   });
+
+  // Each header must name the statistic actually under it: the range columns
+  // carry a median and a robust spread, and were once labelled mean and stddev.
+  it('names each return column for the value beneath it', () => {
+    const [header, line] = rowsToCsv([
+      row({
+        address: 'a',
+        name: 'A',
+        aprMedian: 0.11,
+        aprMedianGross: 0.22,
+        aprSpread: 0.33,
+      }),
+    ]).split('\n');
+
+    const columns = header!.split(',');
+    const values = line!.split(',');
+    const valueOf = (name: string) => values[columns.indexOf(name)];
+
+    expect(valueOf('apr_range_median_net')).toBe('0.11');
+    expect(valueOf('apr_range_median_gross')).toBe('0.22');
+    expect(valueOf('apr_range_spread_net')).toBe('0.33');
+    expect(header).not.toMatch(/mean|stddev/);
+  });
 });

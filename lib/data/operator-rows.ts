@@ -304,16 +304,19 @@ export function rowsToCsv(rows: readonly OperatorRow[]): string {
     'own_stake_polyx',
     'self_stake_ratio',
     'nominators',
-    // Every return column names its period and commission basis — a bare `apr`
-    // column in a spreadsheet is the ambiguity worth avoiding.
+    // Every return column names its period, its commission basis and the
+    // statistic it is — a bare `apr` column in a spreadsheet is the ambiguity
+    // worth avoiding, and so is calling a median a mean. `spread`, not
+    // `stddev`: these are robust estimators (see `robustSpread`), σ-comparable
+    // but not a sample standard deviation.
     'apr_this_era_est_net',
     'apr_this_era_est_gross',
     'apr_last_era_net',
     'apr_last_era_gross',
     'last_era',
-    'apr_range_mean_net',
-    'apr_range_mean_gross',
-    'apr_range_stddev_net',
+    'apr_range_median_net',
+    'apr_range_median_gross',
+    'apr_range_spread_net',
     'points_this_era',
     'points_share',
     'exposure_pages',
