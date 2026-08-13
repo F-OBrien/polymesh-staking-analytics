@@ -29,16 +29,13 @@ import type {
 } from '@/lib/schemas/data';
 
 /**
- * Query hooks over the generated data.
+ * Query hooks over the generated data. Every query states its staleness
+ * explicitly rather than taking a default:
  *
- * The staleness policy is the whole point, so it is stated explicitly per
- * query rather than left to defaults:
- *
- *  - **Chunks: `staleTime: Infinity`.** Immutable by construction. The previous
- *    app left `staleTime` at 0 and so re-fetched frozen history on every mount.
- *  - **Manifest: one minute.** It is the only thing that reveals a new era.
- *  - **Latest: one minute.** Regenerated every fifteen; polling faster is waste.
- *  - **Operators: one hour.** Names change roughly never.
+ *  - Chunks: `Infinity` — immutable by construction.
+ *  - Manifest: one minute — the only thing that reveals a new era.
+ *  - Latest: one minute — regenerated every fifteen, so faster is waste.
+ *  - Operators: one hour — names change roughly never.
  */
 
 export const queryKeys = {
@@ -73,11 +70,9 @@ export function useOperators(): UseQueryResult<OperatorRegistry> {
 }
 
 /**
- * The active-era snapshot.
- *
- * Everything derived from it — era progress, countdowns — is computed in the
- * browser from its anchors, so this does not need to be polled aggressively to
- * keep a countdown moving (design doc §6.6a).
+ * The active-era snapshot. Era progress and countdowns are computed in the
+ * browser from its anchors (§6.6a), so this needs no aggressive polling to keep
+ * a countdown moving.
  */
 export function useLatest(): UseQueryResult<Latest> {
   return useQuery({
@@ -98,11 +93,8 @@ export function useRollup(enabled = true): UseQueryResult<Rollup> {
 }
 
 /**
- * Offence history.
- *
- * An hour is generous for a file that can only change when an era completes,
- * but slashes are the one thing a nominator wants to see promptly, and the file
- * is a few kilobytes.
+ * Slash history, within the chain's un-pruned window. An hour is generous for a
+ * file that can only change when an era completes.
  */
 export function useSlashes(enabled = true): UseQueryResult<Slashes> {
   return useQuery({
@@ -114,11 +106,8 @@ export function useSlashes(enabled = true): UseQueryResult<Slashes> {
 }
 
 /**
- * Offences reported against operators, over all history.
- *
- * A few kilobytes and effectively static — a report can only appear when an era
- * completes. Opt-in, because only the operator pages and `/slashing` have any
- * use for it.
+ * Offences reported against operators, over all history. Opt-in — only the
+ * operator pages and `/slashing` use it.
  */
 export function useOffences(enabled = true): UseQueryResult<Offences> {
   return useQuery({
@@ -130,14 +119,10 @@ export function useOffences(enabled = true): UseQueryResult<Offences> {
 }
 
 /**
- * Era to date, over all history.
- *
- * Opt-in (`enabled`) because it is 34 KB that most pages have no use for:
- * chunks carry `eraStart` for everything they hold. This answers the same
- * question for eras outside that window — a reward paid in 2022, say.
- *
- * Immutable in practice: a past era's start never changes, and a new one is
- * appended once a day. An hour of staleness costs nothing.
+ * Era to date, over all history. Opt-in because chunks already carry `eraStart`
+ * for everything they hold; this covers eras outside that window, such as a
+ * reward paid years ago. Immutable in practice — a past era's start never
+ * changes and a new one is appended once a day.
  */
 export function useEraIndex(enabled = true): UseQueryResult<EraIndex> {
   return useQuery({
@@ -154,12 +139,10 @@ export interface EraRange {
 }
 
 /**
- * Resolves an era range against the manifest.
- *
- * Passing `undefined` selects the most recent `DEFAULT_ERA_WINDOW` eras. The
- * result is clamped to what actually exists, so a range extending past ingested
- * history yields the available subset rather than an error — coverage is
- * reported separately, in the UI, rather than failing the query.
+ * Resolves an era range against the manifest; `undefined` selects the most
+ * recent `DEFAULT_ERA_WINDOW` eras. Clamped to what exists, so a range past
+ * ingested history yields the available subset — the UI reports coverage
+ * separately rather than the query failing.
  */
 export function resolveRange(manifest: Manifest | undefined, requested?: Partial<EraRange>): EraRange | null {
   if (!manifest) return null;
@@ -184,25 +167,18 @@ export interface SeriesResult {
 }
 
 /**
- * Loads exactly the chunks a range needs, and stitches them.
- *
- * This is what keeps the default view cheap at ~1,700 eras of history: the
- * manifest lists each chunk's span, so a 90-era window resolves to three files
- * (design doc §6.5a). Widening the range fetches only the chunks not already
- * held.
- *
- * Keyed by chunk hash, so the cache entry for a range is shared with any other
- * range covering the same chunks.
+ * Loads exactly the chunks a range needs, and stitches them. The manifest lists
+ * each chunk's span, so a 90-era window resolves to three files (§6.5a) and
+ * widening fetches only what is not already held. Keyed by chunk hash, so
+ * overlapping ranges share cache entries.
  */
 export function useEraSeries(
   requested?: Partial<EraRange>,
   /**
-   * Set false to resolve the range but fetch nothing.
-   *
-   * `useNetworkSeries` needs this: hooks cannot be called conditionally, so the
-   * chunk query is always constructed even when the rollup is serving the
-   * range — and without a way to say so it would download fifty-five chunk
-   * files that nothing reads.
+   * Set false to resolve the range but fetch nothing. `useNetworkSeries` needs
+   * this: hooks cannot be called conditionally, so the chunk query exists even
+   * when the rollup is serving the range and would otherwise download dozens of
+   * chunk files nothing reads.
    */
   { enabled = true }: { enabled?: boolean } = {},
 ): SeriesResult {
@@ -221,8 +197,8 @@ export function useEraSeries(
     queryKey: queryKeys.chunks(refs.map((r) => r.hash)),
     queryFn: async ({ signal }) => {
       const loaded = await fetchChunks(refs, { signal });
-      // Opportunistic housekeeping: drop cache entries the manifest no longer
-      // references, so the store does not grow by one dead chunk per era.
+      // Drop cache entries the manifest no longer references, so the store
+      // does not grow by one dead chunk per era.
       void pruneCache(new Set(manifest.data?.chunks.map((c) => c.hash) ?? []));
       return loaded;
     },
@@ -247,29 +223,21 @@ export function useEraSeries(
 
 
 /**
- * The network series for a range, at whatever resolution that range warrants.
+ * The network series for a range, at whatever resolution it warrants: chunk
+ * data era by era below the threshold, the weekly rollup above it — one small
+ * file rather than dozens of chunks for a five-year chart nobody reads a single
+ * era's value from.
  *
- * Below the threshold this is the chunk data, era by era. Above it the weekly
- * rollup, which is one small file rather than a chunk per thirty-two eras —
- * "All" over the chain's life is around fifty-five chunk files, and nobody
- * reads a five-year chart for a single era's value.
- *
- * The switch is reported, never hidden: the caller puts `resolution` in the
- * chart's coverage line, because a chart that silently changes its own
- * granularity is a chart that can be misread.
- *
- * Chunks are still fetched for a long range only if the rollup is unavailable,
- * so a missing `rollup-weekly.json` degrades to slow rather than to blank.
+ * The switch is never hidden; the caller puts `resolution` in the chart's
+ * coverage line. Chunks remain the fallback, so a missing `rollup-weekly.json`
+ * degrades to slow rather than blank.
  */
 export function useNetworkSeries(requested?: Partial<EraRange>): SeriesResult & {
   resolution: 'era' | 'week';
   /**
-   * The reward split, when it came from the rollup.
-   *
-   * Returned explicitly rather than left for a caller to sniff off the series:
-   * at era resolution it is derivable from `operators` and at week resolution
-   * it can only be carried, and a caller that has to test which shape it got is
-   * a caller that will eventually forget to.
+   * The reward split, when it came from the rollup. Returned explicitly rather
+   * than sniffed off the series: it is derivable from `operators` at era
+   * resolution and can only be carried at week resolution.
    */
   rewardSplit: RewardSplit | undefined;
 } {
@@ -280,10 +248,8 @@ export function useNetworkSeries(requested?: Partial<EraRange>): SeriesResult & 
   const rollup = useRollup(wantsRollup);
   const weekly = useMemo(() => rollupToSeries(rollup.data, range), [rollup.data, range]);
 
-  // Chunks are the fallback, so the query is only suppressed once the rollup
-  // has actually produced a series — a missing or unreadable
-  // `rollup-weekly.json` degrades to slow, never to blank. `useEraSeries`
-  // caches by chunk hash, so stepping 90d -> All -> 90d pays for chunks once.
+  // Suppressed only once the rollup has actually produced a series. Caching is
+  // by chunk hash, so stepping 90d -> All -> 90d pays for chunks once.
   const eraSeries = useEraSeries(requested, { enabled: !(wantsRollup && weekly) });
 
   if (wantsRollup && weekly) {

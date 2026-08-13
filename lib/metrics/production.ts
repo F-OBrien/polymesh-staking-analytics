@@ -4,56 +4,32 @@ import type { NullableNetwork } from './derive';
 /**
  * Block production measured against what the authorship lottery predicts.
  *
- * **Why this exists, and why the specced chart does not.** §8.3 lists C18 as
- * "current-era points by operator — horizontal bar, sorted, with an
- * expected-value reference line". Measured against mainnet, that chart is a
- * ranking of luck:
+ * A single era's points cannot rank operators: measured on mainnet, the
+ * observed spread across the field is no larger than pure chance would produce
+ * (era 1674, 90 operators: 8.1% observed against 7.9% predicted). So this
+ * accumulates over the whole selected range, where the noise averages down, and
+ * reports the ratio to expected alongside its uncertainty — which is what
+ * separates "better than expected" from "lucky".
  *
- * - A third of the way into era 1750 the field spanned 800–1420 points, a
- *   coefficient of variation of **12.5%**. The variation a pure lottery would
- *   produce over the same number of blocks is **13.4%**. The observed spread
- *   was *smaller* than chance alone predicts.
- * - Over a *complete* era it is no better: era 1674, 90 operators, observed
- *   8.1% against a predicted 7.9%.
+ * The signal that remains is real but small: over eras 1664–1749 the field
+ * spreads ±1.38%, of which ±0.85% is the lottery. Over seven eras it is ±0.57%
+ * against ±2.90% of noise. Callers are handed the split rather than left to
+ * assume any of the spread is meaningful.
  *
- * Sorting that and drawing a reference line invites exactly the wrong reading —
- * that the operators at the bottom are underperforming, when they simply drew
- * fewer slots. So the question C18 asks ("who is producing?") is kept and the
- * form is changed: accumulate over the whole selected era range, where the
- * noise averages down, and report the ratio to expected *alongside the
- * uncertainty*, so "better than expected" can be distinguished from "lucky".
- *
- * Aggregated over eras 1664–1749 the signal is real but small. Measured
- * through this module: the field spreads ±1.38%, of which ±0.85% is the
- * lottery, leaving **±1.09%** of genuine operator-to-operator dispersion.
- * Ratios run 0.966 to 1.038 and 21 of 90 operators sit beyond two standard
- * errors — the best 4.5σ above expected, the worst 4.1σ below. Over the last
- * seven eras the same calculation leaves ±0.57% against ±2.90% of noise, which
- * is why callers are handed the split rather than left to assume any of the
- * spread is meaningful.
- *
- * **Expected is uniform, not stake-weighted.** Authorship slots are drawn per
- * validator, not per unit of stake. Measured on era 1750, the correlation
- * between points and total stake is 0.07 — and Polymesh's election equalises
- * exposure anyway, so there is barely any stake variation left to correlate
- * with. Expected points for an era is therefore that era's total divided by the
- * number of active operators.
+ * Expected is uniform, not stake-weighted: slots are drawn per validator, and
+ * Polymesh's election equalises exposure anyway (points/stake correlation 0.07).
+ * So an era's expected points is its total over the active operator count.
  */
 
 /**
- * Points awarded per authored block.
+ * Points awarded per authored block, recovered as the GCD of the point totals
+ * rather than hardcoded to Substrate's 20 — it is a runtime constant Polymesh
+ * could change, and a wrong value scales every standard error by its root.
  *
- * Derived from the data rather than hardcoded to Substrate's 20: it is a
- * runtime constant that Polymesh could change, and a wrong value would silently
- * scale every standard error by its square root. Every point total observed on
- * mainnet is a multiple of 20, so the greatest common divisor recovers it.
- *
- * **It needs variety to work.** The GCD of a handful of identical totals is
- * that total, which would report every operator as having authored one block
- * and inflate the error tenfold. Real input is 86 operators over 86 eras and
- * cannot be that uniform — the odds of every total sharing a factor of 40 are
- * astronomical — but that is a property of the data, not of this function, so
- * `summariseProduction` takes the divisor as an injectable override.
+ * Needs variety in the input: the GCD of a few identical totals is that total,
+ * which would report one block each and inflate the error. Real input cannot be
+ * that uniform, but since that is a property of the data,
+ * `summariseProduction` accepts an override.
  */
 export function pointsPerBlock(values: Iterable<number>): number {
   let divisor = 0;
@@ -84,13 +60,9 @@ export interface ProductionRecord {
   /** `points / expected`. One means exactly as predicted. */
   ratio: number;
   /**
-   * One standard error on `ratio`, from the lottery alone.
-   *
-   * Authorship over an era is a draw of `N` slots shared among `n` validators,
-   * so an individual's block count is Binomial(N, 1/n) — variance
-   * `λ(1 − 1/n)`, not Poisson's `λ`. With 86 validators the correction is only
-   * 0.6%, but it costs one term and removes an approximation from a number
-   * whose whole job is to say what counts as significant.
+   * One standard error on `ratio`, from the lottery alone. Authorship is a draw
+   * of `N` slots among `n` validators, so a block count is Binomial(N, 1/n) —
+   * variance `λ(1 − 1/n)`, not Poisson's `λ`.
    */
   standardError: number;
   /** Signed distance from expected, in standard errors. */
@@ -102,9 +74,8 @@ export interface ProductionSummary {
   /** Eras the calculation actually covered. */
   eras: number;
   /**
-   * Spread of `ratio` across the field, as a standard deviation.
-   *
-   * Compare against `luckSpread`: if they are equal, the whole chart is noise.
+   * Spread of `ratio` across the field, as a standard deviation. Compare
+   * against `luckSpread` — if they are equal, the whole chart is noise.
    */
   observedSpread: number;
   /** The spread the lottery alone would produce, as a standard deviation. */
@@ -121,21 +92,17 @@ export interface ProductionInput {
   network: NullableNetwork<'totalPoints' | 'activeOperators'>;
   operators: Readonly<Record<string, Pick<OperatorSeries, 'points'>>>;
   /**
-   * Drop operators present for less than this fraction of the range — up to
-   * `minEras`, which is the real requirement.
-   *
-   * An operator that joined for the last three eras of a ninety-era window has
-   * an enormous standard error and would dominate both ends of a sorted chart.
+   * Drop operators present for less than this fraction of the range, capped at
+   * `minEras`. An operator elected for three eras of ninety has an enormous
+   * standard error and would dominate both ends of a sorted chart.
    */
   minCoverage?: number;
   /**
-   * The absolute floor, and the one that binds on a long range.
-   *
-   * Half of ninety eras is a fair ask; half of 1,750 is 875, which over the
-   * chain's whole history dropped most of the operators currently running and
-   * kept the long-dead ones that were present at the start. The error on this
-   * ratio falls as 1/√blocks and does not care how long the chain has been
-   * going, so the requirement is a count of eras, not a share of them.
+   * The absolute floor, and the one that binds on a long range. A fraction
+   * alone is the wrong shape: half of 1,750 eras drops most operators currently
+   * running in favour of long-dead ones that were there at the start. The error
+   * falls as 1/√blocks regardless of how long the chain has run, so the
+   * requirement is a count of eras, not a share of them.
    */
   minEras?: number;
   /** Overrides the GCD-derived award per block. See `pointsPerBlock`. */
@@ -188,15 +155,15 @@ export function summariseProduction({
     let points = 0;
     let expected = 0;
     let count = 0;
-    // Variance accumulates in *blocks*, era by era, because the number of
-    // validators sharing the slots changes as the set changes.
+    // In blocks, era by era: the number of validators sharing the slots
+    // changes as the set changes.
     let variance = 0;
 
     for (const i of usable) {
       const scored = operator.points[i];
       // Null is "not in the active set that era" — the ingest writes null, not
-      // zero, and stake is null alongside it. A genuine zero would be an
-      // operator that was elected and produced nothing, which counts.
+      // zero. A genuine zero is an elected operator that produced nothing,
+      // which counts.
       if (scored == null) continue;
 
       const active = network.activeOperators[i] as number;
@@ -218,8 +185,8 @@ export function summariseProduction({
       points,
       expected,
       ratio: points / expected,
-      // Blocks are the unit the variance is defined in; dividing by the
-      // expected block count turns it back into a relative error on the ratio.
+      // Variance is in blocks; dividing by expected blocks makes it a relative
+      // error on the ratio.
       standardError: Math.sqrt(variance) / expectedBlocks,
       z: 0,
     });

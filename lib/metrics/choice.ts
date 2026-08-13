@@ -2,38 +2,26 @@ import { deriveOperatorApr, type NullableNetwork } from './derive';
 import type { OperatorSeries } from '@/lib/schemas/data';
 
 /**
- * What backing *these* operators is worth, against backing the average one.
+ * What backing *these* operators is worth, against backing the average one —
+ * the counterfactual none of the page's absolute figures answers.
  *
- * A nominator's page is full of absolutes — earned so far, return to date,
- * network average — and none of them answers the question they are actually
- * holding: was picking these operators worth anything? A counterfactual does.
+ * Forward-looking, and it has to be: a retrospective version cannot be built
+ * honestly, because the indexer's reward events carry no validator and the
+ * counterfactual would also need each past era's exposure, an archive read per
+ * era. So this compares the current nominations over the era range on screen
+ * and prices the gap against the stake assigned now — also the more useful
+ * direction, since a reader can change who they nominate.
  *
- * **Forward-looking, and it has to be.** The obvious version is retrospective:
- * take every payout and ask what an average operator would have paid instead.
- * That cannot be built honestly here. The indexer's reward events carry no
- * validator — introspected, `StakingEvent` has `stashAccount`, `amount` and
- * `identityId` and nothing that says who paid — and the counterfactual also
- * needs the stake exposed in each past era, which would mean an archive read
- * per era. Both are outside what a static site can do. Inventing the answer
- * from today's stake and assuming it never changed would be a plausible-looking
- * number that is wrong for anyone who ever bonded more.
- *
- * So this compares the *current* nominations over the era range on screen, and
- * prices the gap against the stake actually assigned now. That is also the more
- * useful direction: a reader can change who they nominate, and cannot change
- * what they earned last March.
- *
- * **The split is the point.** The gap decomposes exactly:
+ * The gap decomposes exactly:
  *
  *     net = gross x (1 - commission)
  *     net_you - net_field = (gross_you - gross_field)(1 - c_you)   <- production
  *                         - gross_field (c_you - c_field)          <- commission
  *
- * and on Polymesh these two terms are worth very different amounts. Block
- * production separates the field by about 1.1% in relative terms once slot luck
- * is removed (`lib/metrics/production.ts`), while commission runs from 8% to
- * 10% — a 2.2% swing in take-home, twice the size. A nominator chasing
- * performance is optimising the smaller term, and the split says so.
+ * and the two terms are worth very different amounts here: production separates
+ * the field by about 1.1% once slot luck is removed
+ * (`lib/metrics/production.ts`), while commission spans 8–10%. A nominator
+ * chasing performance is optimising the smaller term, and the split says so.
  */
 
 export interface OperatorPick {
@@ -50,14 +38,9 @@ export interface ChoiceInput {
   erasPerYear: number;
   /**
    * Fraction of the range an operator must have been active for to count.
-   *
-   * Every mean here weights operators equally, so without a floor an operator
-   * present for three eras of eighty-six carries the same weight as one present
-   * throughout. Measured on eras 1664-1749: one 3-era operator among the eight
-   * lowest-commission ones reported that group's production as 0.94 points of
-   * APR below the field. With the floor it is 0.23, and the group goes from
-   * 0.50 points worse than the field overall to 0.19 points better — the
-   * conclusion inverted, on one new operator's opening run.
+   * Every mean here weights operators equally, so without a floor one present
+   * for three eras of eighty-six counts as much as one present throughout —
+   * measured, enough to invert the comparison's conclusion.
    */
   minCoverage?: number;
 }
@@ -82,16 +65,10 @@ export interface ChoiceComparison {
   /** The part explained by producing more (or fewer) blocks. */
   fromProduction: number;
   /**
-   * What the two terms do not account for.
-   *
-   * The split is written in terms of each group's *average* gross return and
-   * *average* commission, and the average of a product is not the product of
-   * the averages. The gap is the covariance between the two within each group:
-   * it would matter if this network's high-commission operators were also its
-   * best producers, and it does not, because commission spans 8-10% while
-   * production spans about 1%. Reported rather than folded into one of the
-   * named terms, so a reader is never told a number is "from commission" when
-   * it is an artefact of the arithmetic.
+   * What the two named terms do not account for: the split uses each group's
+   * *average* gross return and commission, and the average of a product is not
+   * the product of the averages. Reported rather than folded into a named term,
+   * so nothing is called "from commission" when it is an arithmetic artefact.
    *
    * `fromCommission + fromProduction + unexplained === difference`, exactly.
    */
@@ -158,18 +135,15 @@ export function compareChoice({
     const columns = operators[pick.address];
     if (!columns) continue;
     const summary = summarise(columns, network, erasPerYear);
-    // The same floor on the picks. An operator nominated last week has no
-    // measurable record over a ninety-era window, and averaging one in would
-    // report its three eras of luck as this reader's operator choice.
+    // The same floor on the picks: an operator nominated last week has no
+    // measurable record, and averaging it in reports its luck as the choice.
     if (summary != null && summary.eras >= required) mine.push({ summary, weight: pick.weight });
   }
   if (mine.length === 0) return null;
 
-  // Weight by assigned stake where there is any. A nominator commonly has
-  // sixteen nominations and stake behind one of them, so an unweighted average
-  // would describe a portfolio they do not hold. With nothing assigned — the
-  // era after re-nominating, say — every pick counts once, which is the only
-  // thing left to mean.
+  // Weighted by assigned stake where there is any: a nominator commonly has
+  // many nominations and stake behind one, so an unweighted average describes a
+  // portfolio they do not hold. With nothing assigned, every pick counts once.
   const totalWeight = mine.reduce((a, b) => a + b.weight, 0);
   const weightOf = (entry: { weight: number }) =>
     totalWeight > 0 ? entry.weight / totalWeight : 1 / mine.length;

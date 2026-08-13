@@ -3,27 +3,20 @@ import type { OperatorRegistry } from '@/lib/schemas/data';
 
 /**
  * Display labels for operators, disambiguated by address only where needed.
- *
- * Several nodes commonly run under one identity — DigiClear and Entoro each run
- * three on mainnet — and they share a name, because the registry gives them one.
- * A chart legend reading "DigiClear" three times is useless, and §8.1 rule 5
+ * Several nodes commonly run under one identity and share its registry name, so
+ * a legend would otherwise read "DigiClear" three times — and §8.1 rule 5
  * forbids leaning on colour to tell series apart.
  *
- * The obvious fix is what this replaces: numbering them "DigiClear 1", "2", "3"
- * by their position in a sort of that identity's addresses. Nothing on chain
- * carries that number — it was ours — and it is **not stable**. Adding a stash
- * that sorts earlier renumbers every node after it, so a "DigiClear 2" noted
- * today can be a different node tomorrow, silently.
- *
- * So the disambiguator is the address, which is what actually identifies a
- * node and cannot drift. It is appended *only* where a name is shared, so the
- * common case stays clean:
+ * The disambiguator is the address, which actually identifies a node and cannot
+ * drift. Do not number them instead ("DigiClear 2"): nothing on chain carries
+ * such a number, and any derived from a sort of the identity's addresses
+ * renumbers silently whenever a stash is added.
  *
  *     Assetera                       — the only node under that name
  *     DigiClear (2HW34b…sNz3Dz)      — one of three
  *
- * Ambiguity is judged against the whole registry rather than whatever happens
- * to be on screen, so a label does not change as a filter or selection changes.
+ * Ambiguity is judged against the whole registry rather than what is on screen,
+ * so a label does not change as a filter or selection changes.
  */
 export type OperatorLabeller = (address: string) => string;
 

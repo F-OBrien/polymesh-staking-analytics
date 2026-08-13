@@ -1,19 +1,13 @@
 /**
- * Staking metric derivations.
+ * Staking metric derivations. Three conventions hold throughout:
  *
- * Ported from the previous app's chart components, which had this maths right —
- * it is the most valuable part of that codebase. Three deliberate changes:
+ *  1. Ratios, not percentages — everything in [0,1]. Formatting is the UI's job.
+ *  2. Pure functions, so all of it is testable.
+ *  3. Exact integer apportionment where the chain uses integer division, so a
+ *     per-operator reward matches what was actually paid.
  *
- *  1. **Ratios, not percentages.** Everything in [0,1]. The old code mixed the
- *     two (`apr` as a percentage, `commission` as a ratio) and multiplied by
- *     100 at inconsistent points. Formatting is the UI's job.
- *  2. **Pure functions.** The old versions were inlined in `useEffect` bodies
- *     and could not be tested. These take values and return values.
- *  3. **Exact integer apportionment** where the chain uses integer division,
- *     so our per-operator reward matches what was actually paid.
- *
- * Every function here is called by both the pipeline and the client, so none of
- * it may reference chain objects, React, or the DOM.
+ * Called by both the pipeline and the client, so nothing here may reference
+ * chain objects, React, or the DOM.
  */
 
 const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
@@ -59,12 +53,9 @@ export function eraDurationMs({
 }
 
 /**
- * Fraction of the active era elapsed, clamped to [0,1].
- *
- * This is the tier-3 derivation (design doc §6.6a): the client calls it against
- * its own clock using anchors from `latest.json`, so a ticking countdown costs
- * no network traffic. Drift between snapshots is bounded by block-time variance
- * over the snapshot interval — seconds on a 24-hour era.
+ * Fraction of the active era elapsed, clamped to [0,1]. The client calls this
+ * against its own clock using anchors from `latest.json` (§6.6a), so a ticking
+ * countdown costs no network traffic.
  */
 export function eraProgress(
   eraStartSeconds: number,
@@ -96,12 +87,9 @@ export function portionAfterCommission(commission: number): number {
 
 /**
  * An operator's gross share of the era reward, apportioned by reward points.
- *
- * Integer arithmetic with truncating division, mirroring the chain. Using
- * floats here would drift from the amount actually paid — small per era, but
- * these are summed across ~1,700 eras on the operator pages.
- *
- * Returns 0 when the era scored no points, which happens on stalled eras.
+ * Integer truncating division, mirroring the chain — floats drift from the
+ * amount actually paid, and these are summed across ~1,700 eras. Returns 0 on a
+ * stalled era that scored no points.
  */
 export function apportionReward(
   eraReward: bigint,
@@ -113,15 +101,10 @@ export function apportionReward(
 }
 
 /**
- * Annualised return for one operator in one era, as a ratio.
- *
- * `net` deducts the operator's commission and is what a nominator earns;
- * `gross` is before commission and reflects node performance rather than the
- * deal on offer. The previous app drew these as two separate charts; here they
- * are one value pair behind a toggle.
- *
- * Returns zeroes when nothing is staked against the operator — an APR on zero
- * stake is undefined, not infinite.
+ * Annualised return for one operator in one era, as a ratio. `net` deducts
+ * commission and is what a nominator earns; `gross` reflects node performance
+ * rather than the deal on offer. Zeroes when nothing is staked against the
+ * operator — an APR on zero stake is undefined, not infinite.
  */
 export function operatorApr(params: {
   eraReward: bigint;
@@ -141,11 +124,9 @@ export function operatorApr(params: {
 }
 
 /**
- * Compounds a per-era rate into an annual one.
- *
- * APR treats rewards as withdrawn; APY assumes they are re-staked every era.
- * On Polymesh, reward destination is a user choice, so both are shown and the
- * difference is real money rather than presentation.
+ * Compounds a per-era rate into an annual one. APR treats rewards as withdrawn,
+ * APY as re-staked every era; on Polymesh that is a user choice, so both are
+ * shown.
  */
 export function aprToApy(apr: number, erasPerYear: number): number {
   if (erasPerYear <= 0) return 0;
@@ -164,15 +145,12 @@ export interface OperatorEraInput {
 }
 
 /**
- * Points-weighted mean commission for an era.
+ * Points-weighted mean commission for an era. Weighted rather than plain, so a
+ * tiny operator charging 100% does not move the average like a large one
+ * charging 5%.
  *
- * Weighting by points rather than taking a plain mean is the point: a
- * tiny operator charging 100% should not move the network average as much as a
- * large, productive one charging 5%.
- *
- * The weight actually accounted for is tracked and the result normalised over
- * it. An account can score reward points in an era without having a
- * preferences entry — the previous app's fix for a real bug, preserved here.
+ * Normalised over the weight actually accounted for, because an account can
+ * score reward points in an era without having a preferences entry.
  */
 export function weightedAverageCommission(
   operators: readonly OperatorEraInput[],
@@ -193,11 +171,9 @@ export function weightedAverageCommission(
 }
 
 /**
- * Stake-weighted mean APR after commission across an era.
- *
- * Computed from summed rewards over summed stake rather than as a mean of the
- * per-operator APRs: the latter would weight a 1,000-POLYX operator the same as
- * a 5,000,000-POLYX one and overstate what the network actually paid.
+ * Stake-weighted mean APR after commission across an era. Summed rewards over
+ * summed stake, not a mean of per-operator APRs — that would weight a
+ * 1,000-POLYX operator like a 5,000,000-POLYX one.
  */
 export function networkAverageApr(params: {
   operators: readonly OperatorEraInput[];
@@ -231,8 +207,8 @@ export function networkAverageApr(params: {
  *   Inflation(x) = I0 + (I_ideal - I0) * x / x_ideal                for x <= x_ideal
  *                = I0 + (I_ideal - I0) * 2^((x_ideal - x) / decay)  for x >  x_ideal
  *
- * where x is the fraction of supply staked. Below the ideal, inflation rises to
- * attract stake; above it, it decays to discourage over-staking.
+ * where x is the fraction of supply staked: below the ideal inflation rises to
+ * attract stake, above it decays to discourage over-staking.
  */
 export const REWARD_CURVE = {
   /** Inflation at 0% staked. */
@@ -255,12 +231,10 @@ export function curveInflation(stakingRatio: number): number {
 }
 
 /**
- * Realised inflation and returns at a staking ratio.
- *
- * Polymesh caps annual issuance at a fixed amount (`fixedYearlyReward`), so
- * actual inflation is the lesser of the curve and that cap. Ignoring the cap —
- * as a naive reading of the curve would — overstates APR whenever supply is
- * large enough for the cap to bind, which is the regime the network is in.
+ * Realised inflation and returns at a staking ratio. Polymesh caps annual
+ * issuance at `fixedYearlyReward`, so inflation is the lesser of the curve and
+ * that cap — and the cap binds in the regime the network is actually in, so
+ * reading the curve alone overstates APR.
  */
 export function stakingReturns(params: {
   stakingRatio: number;
@@ -289,8 +263,8 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Converts base units to POLYX. Used at the boundary where exact balances
- * become chart values — never in the middle of a calculation.
+ * Base units to POLYX. Call at the boundary where exact balances become chart
+ * values, never mid-calculation.
  */
 export function toPolyx(baseUnits: bigint, tokenDecimals: number): number {
   const divisor = 10 ** tokenDecimals;

@@ -3,30 +3,22 @@ import type { NullableNetwork } from './derive';
 import { deriveOperatorRewards } from './derive';
 
 /**
- * Where an era's rewards actually went, in POLYX.
+ * Where an era's rewards actually went, in POLYX — the magnitude behind the
+ * rates shown everywhere else. Measured on mainnet, commission is not a fee on
+ * top of a validator's return but very nearly the whole of it: the median
+ * operator has under 1% of its own exposure at stake.
  *
- * Everything else on this site is a rate, and rates hide magnitudes: a
- * nominator reading "19.9% after a 10% commission" has no sense of whether the
- * commission is a rounding error or the operator's entire income. Measured on
- * era 1750 it is very nearly the whole of it — across the active set, operators
- * took 32,668 POLYX in commission and earned 12,828 on their own stake, because
- * the median operator has 0.8% of its own exposure at stake. Commission is not
- * a fee on top of a validator's return; for almost every operator on Polymesh
- * it *is* the return.
- *
- * The split follows the chain's own order of operations, which is not the
- * intuitive one. Commission comes off the top of the whole reward, and only
- * what is left is divided by stake — so an operator with its own stake in the
- * pool is paid twice, once as commission and once as a backer.
+ * The split follows the chain's order of operations, which is not the intuitive
+ * one — commission comes off the top and only the remainder is divided by
+ * stake, so an operator with its own stake in the pool is paid twice:
  *
  *     commission  = gross × commissionRate
  *     rest        = gross − commission
  *     ownStake    = rest × (ownStake ÷ totalStake)
  *     nominators  = rest − ownStake
  *
- * `nominators` is taken as the remainder rather than computed from the
- * nominators' share of stake, so the three parts always sum to `gross` exactly
- * and a stacked bar can never show a gap or an overlap at the top.
+ * `nominators` is the remainder rather than a share of stake, so the three
+ * parts sum to `gross` exactly and a stacked bar can never gap or overlap.
  */
 
 export interface RewardSplit {
@@ -73,18 +65,11 @@ export function deriveRewardSplit(
     const taken = earned * rate;
     const rest = earned - taken;
     /**
-     * Clamped, because the stored ratio can exceed 1 and the maths cannot.
-     *
-     * In the chain's first weeks validators had no nominators at all, so their
-     * own stake *was* the whole exposure — and the two are stored as separate
-     * six-decimal figures, which lets rounding put own fractionally above
-     * total. Measured across all 103,541 operator-eras it happens 55 times, all
-     * in the first chunk, and the worst overshoot is 0.019%.
-     *
-     * Small, and not harmless: unclamped it makes the nominators' remainder
-     * negative, and a negative band in a stacked area is drawn below the one
-     * beneath it. The chain never paid a nominator a negative reward, so the
-     * ratio is capped rather than the artefact rendered.
+     * Clamped, because the stored ratio can exceed 1 where an operator's own
+     * stake was the whole exposure: own and total are separate six-decimal
+     * figures, so rounding can put own fractionally above total. Unclamped that
+     * makes the nominators' remainder negative, which a stacked area draws
+     * below the band beneath it.
      */
     const toOwn = rest * Math.min(1, own / total);
 
@@ -97,13 +82,10 @@ export function deriveRewardSplit(
 }
 
 /**
- * The same split for the whole active set, era by era.
- *
- * Summed from the per-operator split rather than taken from
- * `network.validatorReward` directly, because the three parts depend on each
- * operator's own commission and self-stake and there is no network-level column
- * that carries either. The total does reconcile: measured on era 1750 the parts
- * sum to 338,919 POLYX against a recorded `validatorReward` of 338,919.
+ * The same split for the whole active set, era by era. Summed from the
+ * per-operator split rather than `network.validatorReward`, since the parts
+ * depend on each operator's own commission and self-stake and no network-level
+ * column carries either. Verified to reconcile against the recorded total.
  */
 export function deriveNetworkRewardSplit(
   operators: Readonly<
@@ -125,9 +107,8 @@ export function deriveNetworkRewardSplit(
       for (let i = 0; i < eraCount; i += 1) {
         const value = split[key][i];
         if (value == null) continue;
-        // Null is "no operator contributed here yet", which is not the same as
-        // zero — an era with no data at all must stay blank rather than plot a
-        // floor of nothing.
+        // Null is "no operator contributed here", not zero — an era with no
+        // data must stay blank rather than plot a floor of nothing.
         total[key][i] = (total[key][i] ?? 0) + value;
       }
     }

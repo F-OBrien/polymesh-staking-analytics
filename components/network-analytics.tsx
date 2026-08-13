@@ -22,10 +22,8 @@ import {
 } from '@/lib/format';
 
 /**
- * The decentralisation section sits well below the fold and carries its own
- * Lorenz chart and concentration maths, so it is code-split rather than loaded
- * with the page. Together with the lazy charts this is what holds the critical
- * path under budget — measured, not assumed.
+ * Well below the fold and carries its own Lorenz chart and concentration maths,
+ * so it is code-split rather than loaded with the page.
  */
 const Decentralisation = dynamic(
   () => import('@/components/decentralisation').then((m) => m.Decentralisation),
@@ -33,26 +31,18 @@ const Decentralisation = dynamic(
 );
 
 /**
- * Anchor target for a chart the trend strip links to.
- *
- * `:target` rather than a scroll-and-highlight script: jumping the viewport is
- * disorienting if the destination does not identify itself, and one CSS
- * selector does it with no JavaScript and no state to unwind.
+ * Anchor target for a chart the trend strip links to. `:target` rather than a
+ * scroll-and-highlight script — the destination has to identify itself, and one
+ * CSS selector does it with no state to unwind.
  */
 const CHART_ANCHOR =
   'scroll-mt-6 rounded-[var(--radius-lg)] target:outline-2 target:outline-offset-4 ' +
   'target:outline-[var(--focus-ring)]';
 
 /**
- * Network analytics.
- *
- * Organised by the question each section answers rather than by data shape —
- * the previous app's pages were "Overview / History / Trends / Current Info",
- * which describe the *form* of the data and tell a reader nothing about what
- * they will find.
- *
- * Every chart is lazily mounted (see `LazyChart`), which is what keeps the
- * chart kit off the critical path.
+ * Network analytics, organised by the question each section answers rather than
+ * by data shape. Every chart is lazily mounted (see `LazyChart`), which keeps
+ * the chart kit off the critical path.
  */
 export function NetworkAnalytics() {
   const manifest = useManifest();
@@ -61,38 +51,22 @@ export function NetworkAnalytics() {
   const { series, isLoading, isError, error, isFetching, resolution, rewardSplit } =
     useNetworkSeries(range);
 
-  /**
-   * Stated, not implied.
-   *
-   * Past a year the network charts are drawn from `rollup-weekly.json` rather
-   * than the chunks — one small file against fifty-five. A reader must be told,
-   * because a point on the chart stops being an era and becomes a week, and a
-   * chart that changes its own granularity in silence is a chart that gets
-   * misread.
-   */
+  // Past a year the charts are drawn from `rollup-weekly.json`, so a point
+  // stops being an era and becomes a week. Always stated, never implied.
   const weeklySpan =
     resolution === 'week'
       ? `eras ${formatNumber(range?.fromEra)}–${formatNumber(range?.toEra)}`
       : null;
   const grain = weeklySpan ? `weekly averages, ${weeklySpan}` : null;
-  /**
-   * Rewards are a *flow*, and the rollup sums them over the week rather than
-   * averaging them — as it must, since averaging a payout would understate the
-   * week sevenfold. Calling that "weekly averages" alongside a y-axis reading
-   * 2.5M, against a per-era figure nearer 350K, invites the reader to conclude
-   * the chart disagrees with every other reward figure on the site.
-   */
+  // Rewards are a flow, so the rollup sums them over the week rather than
+  // averaging. Labelling those "weekly averages" would make the chart look like
+  // it disagrees with every other reward figure on the site.
   const grainTotals = weeklySpan ? `weekly totals, ${weeklySpan}` : null;
   const pointNoun = resolution === 'week' ? 'weeks' : 'eras';
 
-  /**
-   * The return chart over the chain's whole life needs a ceiling.
-   *
-   * Its band and its average both run through the bootstrap weeks, so the cap
-   * is taken across all three series rather than the average alone — capping to
-   * the average's range while the p90 still reached 12,000% would clip the band
-   * to a solid block against the top of the plot.
-   */
+  // Across all three series, not the average alone: the band runs through the
+  // bootstrap weeks too, and capping to the average's range while p90 still
+  // reached 12,000% would clip the band into a block at the top of the plot.
   const aprCap = useMemo(
     () =>
       outlierCap(
@@ -115,20 +89,16 @@ export function NetworkAnalytics() {
     value == null ? '—' : formatPolyx(value, { compact: true });
   const count = (value: number | null) => formatNumber(value);
 
-  /**
-   * Change over the visible window, for the stat tiles.
-   *
-   * A bare number tells a reader nothing about direction — "APR 12.4%" is up or
-   * down from what? Comparing the first and last values of the range they are
-   * already looking at keeps the delta consistent with the charts below.
-   */
+  // Change over the visible window, for the stat tiles: "APR 12.4%" alone says
+  // nothing about direction, and using the range already on screen keeps the
+  // delta consistent with the charts below.
   const delta = useMemo(() => {
     const network = series?.network;
     if (!network || series.eras.length < 2) return null;
 
-    // First and last *recorded* values, not first and last slots. A range whose
-    // ends fall in eras no chunk covers now carries nulls there, and reading
-    // them as the endpoints would report "no change" for a window that changed.
+    // First and last *recorded* values, not first and last slots: a range whose
+    // ends fall in uncovered eras carries nulls there, which would report "no
+    // change" for a window that changed.
     const change = (column: readonly (number | null)[]) => {
       const first = column.find((v) => v != null);
       const last = [...column].reverse().find((v) => v != null);
@@ -171,20 +141,11 @@ export function NetworkAnalytics() {
   const decimals = manifest.data?.chain.tokenDecimals ?? 6;
 
   /**
-   * Which side of the *cap* we are on — not the reward curve's "ideal".
-   *
-   * This tile used to read "below the 70% target — returns run high", quoting
-   * `REWARD_CURVE.xIdeal`. That is a Substrate concept and it is the wrong
-   * threshold for Polymesh: a fixed 140,000,000 POLYX annual reward caps
-   * inflation at ~10.7% of issuance, which binds at about 50% staked. The
-   * curve's 70% ideal is therefore never reached, and describing the network as
-   * heading toward it implies a smooth taper that will not happen — past the cap
-   * the pot stops growing and the return falls in step with any further
-   * staking. See `components/reward-curve.tsx`.
-   *
-   * The home page's tiles had already been corrected to say this; this copy had
-   * not, and both were deployed. It survives here because the two pages are now
-   * one.
+   * Which side of the cap we are on — never the reward curve's 70% "ideal",
+   * which is a Substrate concept and the wrong threshold here. Polymesh's fixed
+   * 140,000,000 POLYX annual reward caps inflation at ~10.7% of issuance and
+   * binds at about 50% staked, so the ideal is never reached and past the cap
+   * the pot stops growing. See `components/reward-curve.tsx`.
    */
   const cap =
     latest.data && BigInt(latest.data.totalIssuance) > 0n
@@ -477,19 +438,11 @@ export function NetworkAnalytics() {
 
       <Decentralisation latest={latest.data} loading={latest.isLoading} />
 
-      {/*
-        The trend strip, as navigation rather than as four more charts.
-
-        Every series here already has a full chart with axes further up this
-        same page, so the sparklines were saying nothing new — and at 80px wide
-        with no scale they could not be read anyway. Making each one a link to
-        the chart it summarises turns dead duplication into the page's contents
-        list, and answers "can I see this bigger?" with the chart that was
-        already built rather than a second copy of it.
-
-        Plain anchors: they work without JavaScript, they are keyboard
-        reachable for free, and `:target` lets the destination announce itself.
-      */}
+      {/* The trend strip, as navigation rather than four more charts: every
+          series already has a full chart above, so each sparkline links to it
+          and the strip doubles as the page's contents list. Plain anchors —
+          they work without JavaScript and `:target` announces the
+          destination. */}
       <section aria-labelledby="trends-heading" className="mt-12">
         <h2 id="trends-heading" className="mb-1 text-[22px] leading-7 font-semibold tracking-tight">
           Trends at a glance

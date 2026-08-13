@@ -4,27 +4,21 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * A small ⓘ that reveals an explanation on hover, focus or tap.
+ * A small ⓘ that reveals an explanation on hover, focus or tap — so the prose a
+ * staking site's audience needs is one gesture away rather than four lines
+ * pushing the data below the fold.
  *
- * Pages here had a habit of explaining themselves in a paragraph under every
- * heading. The explanations were worth having and worth *keeping* — a staking
- * site's audience includes people who do not know what commission does to a
- * return — but four lines of prose above the thing a reader came for pushes the
- * data below the fold and gets skipped anyway. This puts the same words one
- * gesture away.
+ * Hand-rolled rather than Radix Tooltip: this is on every page's critical path,
+ * where the budget headroom is single-digit kilobytes, and it needs a box under
+ * a button rather than collision-aware positioning.
  *
- * Hand-rolled rather than Radix Tooltip. This sits on the critical path of
- * every page, and the budget is measured in single-digit kilobytes of headroom
- * (see `docs/STATUS.md` open item 1). Radix's tooltip would be the right call
- * if it needed collision-aware positioning; it needs a box under a button.
- *
- * The accessibility rules it has to satisfy, none of which `title=` does:
+ * The accessibility rules it satisfies, none of which `title=` does:
  *
  *  - reachable by keyboard, and dismissible with Escape without moving focus
- *  - hoverable — the panel stays open while the pointer is inside it, so a
- *    reader can select the text
- *  - announced, via `aria-describedby` rather than a bare tooltip role
- *  - usable on touch, where there is no hover at all, hence the click toggle
+ *  - hoverable, so the panel stays open while the pointer is inside it and the
+ *    text can be selected
+ *  - announced via `aria-describedby` rather than a bare tooltip role
+ *  - usable on touch, where there is no hover — hence the click toggle
  */
 export function InfoTip({
   label = 'More information',
@@ -37,21 +31,14 @@ export function InfoTip({
    * Open state and the measured anchor position, as one value.
    *
    * Fixed positioning, because an absolutely-positioned panel is clipped by the
-   * nearest scroll container — and the table this mostly lives in sits inside
-   * `overflow-x-auto`, which cut off the explanations on the right-hand
-   * columns. Taking the panel out of flow is the only fix that does not depend
-   * on which column a tooltip happens to be attached to.
+   * nearest scroll container — most of these live in a table inside
+   * `overflow-x-auto`. Measured in the event handler rather than an effect,
+   * which would cost a second render on every open.
    *
-   * The measurement happens in the *event handler* rather than an effect. Doing
-   * it in an effect means a second render every time the panel opens, which is
-   * what `react-hooks/set-state-in-effect` is there to catch.
-   *
-   * The panel is also **portalled to `document.body`**, which fixed position
-   * alone does not achieve. Most of these sit inside the operators table's
-   * sticky `<th>`, and `position: sticky` with a `z-index` creates a stacking
-   * context: the panel's `z-50` then only competes *within* that one cell, so
-   * every later header cell painted over its top edge and clipped the first
-   * line of text. A portal takes it out of that context entirely.
+   * Also portalled to `document.body`, which fixed position alone does not
+   * achieve: these sit inside sticky `<th>`s, and `position: sticky` with a
+   * `z-index` creates a stacking context the panel's own `z-index` cannot
+   * escape, so later header cells paint over it.
    */
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const open = at != null;
@@ -81,8 +68,8 @@ export function InfoTip({
         wrapper.current?.querySelector('button')?.focus();
       }
     };
-    // A tap elsewhere closes it. Touch has no hover, so without this the panel
-    // would stay open until the button was tapped again.
+    // A tap elsewhere closes it: touch has no hover, so otherwise the panel
+    // stays open until the button is tapped again.
     const onPointerDown = (event: PointerEvent) => {
       if (!wrapper.current?.contains(event.target as Node)) hide();
     };
@@ -142,16 +129,16 @@ export function InfoTip({
                 borderColor: 'var(--border)',
                 background: 'var(--surface-2)',
                 color: 'var(--text-secondary)',
-                // Both inherited from wherever this is anchored. Table headers
-                // set `nowrap`, which made the prose run off the side of the
-                // panel, and headings set their own tracking and weight.
+                // Both would otherwise be inherited from the anchor: table
+                // headers set `nowrap`, which runs the prose off the side of
+                // the panel, and headings set their own tracking and weight.
                 whiteSpace: 'normal',
                 textAlign: 'left',
                 fontWeight: 400,
                 letterSpacing: 'normal',
               }}
-              // The panel is out of the wrapper's DOM subtree now, so it needs
-              // its own hover handling or moving the pointer into it closes it.
+              // The panel is outside the wrapper's DOM subtree, so it needs its
+              // own hover handling or moving the pointer into it closes it.
               onMouseEnter={show}
               onMouseLeave={hide}
             >
@@ -166,9 +153,7 @@ export function InfoTip({
 
 /**
  * A page or section heading with its explanation folded into an {@link InfoTip}.
- *
- * `lead` is the one line that must survive without interaction — a reader who
- * never hovers still has to know what they are looking at.
+ * `lead` is the one line that must survive without interaction.
  */
 export function HeadingWithTip({
   as: Tag = 'h2',

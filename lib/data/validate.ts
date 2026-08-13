@@ -1,23 +1,16 @@
 /**
- * Client-side validation of fetched data files.
+ * Client-side validation of fetched data files: full Zod parsing in
+ * development, where contract drift should surface loudly, and a cheap
+ * structural check in production.
  *
- * **Zod is deliberately kept out of the production bundle.** Measured in
- * isolation it costs 64.6 KB gzip — 26% of the home page's critical-path
- * JavaScript, and more than every other dependency of ours combined. Paying
- * that on every page load buys very little, because:
+ * Zod is deliberately kept out of the production bundle — it costs more gzipped
+ * than all our other dependencies combined, and buys little there. The pipeline
+ * already validates every file against these schemas before writing it and
+ * refuses to publish on failure, so the residual risk is version skew, which a
+ * `schemaVersion` check catches for no bytes.
  *
- *  - The pipeline already validates every file against these same schemas
- *    *before writing it*, and refuses to publish on failure. That is the
- *    authoritative gate, and it runs in Node where size is irrelevant.
- *  - The residual production risk is not malformed data, it is **version skew**
- *    — a freshly deployed site reading data written by an older pipeline, or the
- *    reverse. A `schemaVersion` check catches exactly that, for no bytes.
- *
- * So: full Zod parsing in development, where contract drift should surface
- * loudly while you are working on it; a cheap structural check in production.
  * The `NODE_ENV` comparison is statically replaced at build time, so the dynamic
- * import below is eliminated from the production bundle rather than merely
- * deferred — verified by measuring the built output, not assumed.
+ * import below is eliminated from the production bundle rather than deferred.
  */
 
 import type {

@@ -1,17 +1,14 @@
 import { aprToApy } from './staking';
 
 /**
- * Reward projection for the calculator.
+ * Reward projection for the calculator. The framing matters more than the
+ * arithmetic: a single confident number is misleading, since the return depends
+ * on the staking ratio, the operator continuing to perform and its commission
+ * not changing — none of which the user controls.
  *
- * The honest framing matters more than the arithmetic here, which is trivial.
- * A staking calculator that prints a single confident number is misleading: the
- * return depends on the network's staking ratio, on the operator continuing to
- * perform, and on its commission not changing — none of which the user
- * controls, and all of which have moved historically.
- *
- * So every projection carries a **range** derived from that operator's own
- * measured era-to-era variance, and `assumptions()` states in words what the
- * figure is conditional on. A wide band is information, not a defect.
+ * So every projection carries a range from that operator's own measured
+ * era-to-era variance, and `assumptions()` states what the figure is
+ * conditional on. A wide band is information, not a defect.
  */
 
 export interface ProjectionInput {
@@ -28,11 +25,9 @@ export interface ProjectionInput {
   days: number;
   erasPerYear: number;
   /**
-   * Whether rewards are re-bonded as they are claimed.
-   *
-   * Polymesh does **not** auto-compound: rewards land in the free balance and
-   * must be bonded again deliberately. Compounding therefore models a user who
-   * does that every era, which is an upper bound and is labelled as such.
+   * Whether rewards are re-bonded as they are claimed. Polymesh does not
+   * auto-compound — rewards land in the free balance and must be bonded again —
+   * so this models a user who does that every era, an upper bound.
    */
   compound: boolean;
 }
@@ -52,13 +47,10 @@ export interface Projection {
   /** The APR used, and the band around it. */
   apr: { mid: number; low: number; high: number };
   /**
-   * The same three figures as an effective annual rate.
-   *
-   * A band rather than a scalar so the headline rate and the range beside it
-   * are always on the same basis. Showing a compounded 33.1% next to an
-   * uncompounded 28.0–29.2% put the headline outside its own range, which reads
-   * as a bug in the arithmetic even though both numbers were individually
-   * right. Equal to `apr` when not compounding.
+   * The same three figures as an effective annual rate. A band rather than a
+   * scalar so the headline and the range beside it stay on one basis —
+   * otherwise a compounded headline sits outside its own uncompounded range and
+   * reads as an arithmetic bug. Equal to `apr` when not compounding.
    */
   apy: { mid: number; low: number; high: number };
   /** Eras the horizon spans, rounded down — rewards accrue per whole era. */
@@ -66,12 +58,9 @@ export interface Projection {
 }
 
 /**
- * Growth over `eras` at a per-era rate.
- *
- * Simple interest when not compounding, because unclaimed rewards genuinely do
- * not earn: they sit in the free balance until bonded. The difference is small
- * over weeks and material over years, which is exactly when a calculator gets
- * believed.
+ * Growth over `eras` at a per-era rate. Simple interest when not compounding,
+ * because unclaimed rewards genuinely do not earn — they sit in the free
+ * balance until bonded.
  */
 function grow(
   amount: number,
@@ -96,9 +85,8 @@ export function project({
   const eras = Math.max(0, Math.floor((days * erasPerYear) / 365));
   const sigma = aprStdDev != null && Number.isFinite(aprStdDev) ? Math.abs(aprStdDev) : 0;
 
-  // Clamped at zero: a negative APR is not a thing staking can produce, so a
-  // wide band on a low-APR operator should bottom out at "earns nothing", not
-  // at "loses money". Slashing can lose money, but that is not this number.
+  // Clamped at zero: a wide band on a low-APR operator should bottom out at
+  // "earns nothing", not "loses money". Slashing is a different number.
   const lowApr = Math.max(0, apr - sigma);
   const highApr = Math.max(0, apr + sigma);
 
@@ -120,11 +108,9 @@ export function project({
 }
 
 /**
- * What the projection is conditional on, in words.
- *
- * Rendered as a list beside the figure rather than buried in a footnote. Each
- * entry names a specific thing that could make the number wrong, because
- * "estimates only" tells a reader nothing they did not already assume.
+ * What the projection is conditional on, in words — rendered beside the figure
+ * rather than as a footnote. Each entry names a specific thing that could make
+ * the number wrong; "estimates only" tells a reader nothing.
  */
 export function assumptions({
   compound,

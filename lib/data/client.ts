@@ -14,11 +14,9 @@ import { readCachedChunk, writeCachedChunk } from './cache';
 import { validateData, type DataFileKind } from './validate';
 
 /**
- * Fetching the generated data files.
- *
- * Note the schema imports here are **type-only**, so they are erased at compile
- * time. Runtime validation goes through `./validate`, which keeps Zod out of the
- * production bundle — see the note in that file for why.
+ * Fetching the generated data files. The schema imports here are type-only and
+ * erased at compile time; runtime validation goes through `./validate`, which
+ * keeps Zod out of the production bundle.
  */
 
 /** Thrown for any data-layer failure, so the UI can distinguish it from a bug. */
@@ -48,9 +46,9 @@ async function fetchJson<K extends DataFileKind>(
 
   let response: Response;
   try {
-    // `signal` is spread conditionally rather than passed as `undefined`:
-    // RequestInit declares it `AbortSignal | null`, which under
-    // exactOptionalPropertyTypes is not the same as an absent property.
+    // Spread conditionally, not passed as `undefined`: RequestInit declares
+    // `AbortSignal | null`, which under exactOptionalPropertyTypes differs
+    // from an absent property.
     response = await fetch(url, { cache, ...(signal ? { signal } : {}) });
   } catch (cause) {
     if (signal?.aborted) throw cause;
@@ -80,11 +78,8 @@ async function fetchJson<K extends DataFileKind>(
 }
 
 /**
- * The manifest, always fetched fresh.
- *
- * It is about a kilobyte and it is the only thing that reveals which chunks
- * exist, so caching it would strand a client on yesterday's era for as long as
- * the cache lived.
+ * The manifest, always fetched fresh. It is a kilobyte and the only thing that
+ * reveals which chunks exist, so caching it strands a client on yesterday's era.
  */
 export function fetchManifest(options?: FetchOptions): Promise<Manifest> {
   return fetchJson('manifest.json', 'manifest', { ...options, cache: 'no-cache' });
@@ -93,25 +88,12 @@ export function fetchManifest(options?: FetchOptions): Promise<Manifest> {
 /**
  * One chunk, preferring the IndexedDB copy.
  *
- * **The hash goes in the URL, and that is load-bearing.** This used to fetch
- * `chunks/1632.json` with `cache: 'force-cache'` on the reasoning that a
- * complete chunk is immutable. It is not: the archive backfill rewrote 55 of
- * them, filling in eras they had never held. `force-cache` serves a cached
- * response without revalidating *at all*, so every browser that had visited
- * before the backfill kept its old copy of that URL indefinitely — and then
- * wrote those stale bytes into IndexedDB under the *new* manifest hash, which
- * made the mistake permanent even after the HTTP entry expired.
- *
- * Reported as a gap in the charts across eras 1344–1359 and 1632–1659. Those
- * are not arbitrary: they are the halves of chunks 1344 and 1632 that had not
- * been ingested yet when those copies were cached. On disk both files are
- * complete, which is why it reproduced for one reader and for nobody else.
- *
- * Putting the content hash in the query string makes every URL genuinely
- * immutable — different content, different URL — so a stale entry can never be
- * served under a name that now means something else. `force-cache` then
- * applies to every chunk rather than only the complete ones, which also removes
- * the revalidation round trip for the trailing chunk.
+ * The content hash in the query string is load-bearing: a chunk file is not
+ * actually immutable — a backfill can rewrite one to fill in eras it never held
+ * — and `force-cache` serves a cached response without revalidating at all. Keep
+ * the hash so different content is always a different URL, or a stale copy is
+ * served under a name that now means something else and then written into
+ * IndexedDB under the new manifest hash, making it permanent.
  */
 export async function fetchChunk(ref: ChunkRef, options?: FetchOptions): Promise<Chunk> {
   const cached = await readCachedChunk(ref.hash);
@@ -127,11 +109,8 @@ export async function fetchChunk(ref: ChunkRef, options?: FetchOptions): Promise
 }
 
 /**
- * Several chunks at once.
- *
- * Parallel because a 90-era window is three files and HTTP/2 handles that
- * trivially — and because after the first visit most come from IndexedDB
- * without touching the network at all.
+ * Several chunks at once, in parallel — a 90-era window is three files, and
+ * after the first visit most come from IndexedDB anyway.
  */
 export function fetchChunks(refs: readonly ChunkRef[], options?: FetchOptions): Promise<Chunk[]> {
   return Promise.all(refs.map((ref) => fetchChunk(ref, options)));
@@ -152,36 +131,29 @@ export function fetchRollup(options?: FetchOptions): Promise<Rollup> {
 }
 
 /**
- * Offence history.
- *
- * Rewritten wholesale by the pipeline rather than appended to, so it is not
- * hard-cached: an era leaving the chain's retention window changes
- * `prunedBefore` without changing any event.
+ * Slash history. Rewritten wholesale by the pipeline rather than appended to,
+ * so it is not hard-cached — an era leaving the chain's retention window
+ * changes `prunedBefore` without changing any event.
  */
 export function fetchSlashes(options?: FetchOptions): Promise<Slashes> {
   return fetchJson('slashes.json', 'slashes', options);
 }
 
 /**
- * Offences reported against operators, over all history.
- *
- * Separate from `slashes.json` because the sources are different in kind: that
- * file is built from chain state, which is pruned to ~84 eras and records only
- * what was actually taken; this one is built from indexer events, which go back
- * to genesis and fire whether or not anything was taken. On a chain with
- * validator slashing switched off, this is the file with the content.
+ * Offences reported against operators, over all history. Separate from
+ * `slashes.json` because the sources differ in kind: that file comes from chain
+ * state, pruned to ~84 eras and recording only what was taken; this one comes
+ * from indexer events, which reach genesis and fire regardless. With validator
+ * slashing switched off, this is the file with the content.
  */
 export function fetchOffences(options?: FetchOptions): Promise<Offences> {
   return fetchJson('offences.json', 'offences', options);
 }
 
 /**
- * Every era's start block and time, for the chain's whole life.
- *
- * ~34 KB, and deliberately *not* fetched by default. Chunks already carry
- * `eraStart` for the eras they hold, which covers every chart axis; this is
- * only needed where a date is wanted for an era we hold no chunk for — which
- * today means reward history, and later the backfill.
+ * Every era's start block and time, for the chain's whole life. Not fetched by
+ * default: chunks carry `eraStart` for the eras they hold, which covers every
+ * chart axis, so this is only for dates outside that window.
  */
 export function fetchEraIndex(options?: FetchOptions): Promise<EraIndexFile> {
   return fetchJson('era-index.json', 'eraIndex', options);

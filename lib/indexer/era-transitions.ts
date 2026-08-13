@@ -1,34 +1,23 @@
 import { graphql, INDEXER_PAGE_SIZE, parseIndexerDate, type GraphQlOptions } from './client';
 
 /**
- * Every era transition the chain has ever recorded.
+ * Every era transition the chain has ever recorded. Era storage is pruned past
+ * `historyDepth`, so "when did era 300 start" is unanswerable from current
+ * state — but it is an event, and the indexer keeps those forever.
  *
- * The chain prunes era storage past `historyDepth`, so "when did era 300 start"
- * is unanswerable from current state. It is, however, an *event*, and events are
- * kept forever by the indexer — which makes this the cheapest complete answer
- * available: about eighteen requests for the whole history.
+ * Two event names, not one: `staking.EraPayout` covers eras 0–1120 and
+ * `staking.EraPaid` 1121 onward, the pallet having renamed it across a runtime
+ * upgrade. Querying either alone loses most of the chain's life, the same trap
+ * as `Reward` versus `Rewarded` in the reward query.
  *
- * **Two event names, not one.** `staking.EraPayout` covers eras 0–1120 and
- * `staking.EraPaid` covers 1121 onward; the pallet renamed it across a runtime
- * upgrade. Measured on mainnet: 1,121 + 628 = 1,749 transitions, contiguous from
- * era 0. Querying either name alone silently loses most of the chain's life —
- * the same trap as `Reward` versus `Rewarded` in the reward query.
- *
- * `eventArg0` is the era index in both spellings. It arrives as a string.
+ * `eventArg0` is the era index in both spellings, and arrives as a string.
  */
 
 /**
- * One era transition.
- *
- * **`era` is the era that *ended* here, not the one that began.** Verified
- * against our own ingest, which reads `erasStartSessionIndex` from chain
- * storage: era 1748 started 2026-08-09T13:26:12, and `EraPaid(1748)` fired at
- * 2026-08-10T13:26:12 — exactly one era later. So an event tagged era N marks
- * the boundary at which N finished and N+1 began.
- *
- * Getting this backwards is a silent off-by-one that mislabels every era by a
- * day, which is why `buildEraIndex` does the shift in one documented place
- * rather than leaving each caller to remember it.
+ * One era transition. Note `era` is the era that *ended* here, not the one that
+ * began — an event tagged era N marks the boundary at which N finished and N+1
+ * began, verified against `erasStartSessionIndex`. `buildEraIndex` does the
+ * shift in one place rather than leaving each caller to remember it.
  */
 export interface EraTransition {
   /** The era that ended at this point. */
@@ -50,11 +39,9 @@ interface EventsResponse {
 }
 
 /**
- * Ordered by `BLOCK_ID_ASC`, which is safe and deliberate: `blockId` is
- * zero-padded to a fixed width, so a string sort is a numeric sort. This is the
- * chain's own causal order. Sorting on the block's datetime would not be safe —
- * that field's format is not fixed-width, so its string comparison is not
- * reliably chronological.
+ * Ordered by `BLOCK_ID_ASC` — the chain's own causal order, and safe because
+ * `blockId` is zero-padded to a fixed width so a string sort is a numeric one.
+ * Datetime is not fixed-width and so does not sort reliably.
  */
 const ERA_TRANSITIONS_QUERY = `
   query EraTransitions($first: Int!, $offset: Int!) {
@@ -78,11 +65,9 @@ const ERA_TRANSITIONS_QUERY = `
 `;
 
 /**
- * Walks every era transition, oldest first.
- *
- * Sequential, like every other paginated read here: the endpoint's rate limit is
- * undocumented, and this is a pipeline job with no deadline. `onProgress` exists
- * so a run that takes twenty requests can say so rather than appearing hung.
+ * Walks every era transition, oldest first. Sequential like every paginated
+ * read here — the rate limit is undocumented and this is a pipeline job with no
+ * deadline. `onProgress` keeps a long run from appearing hung.
  */
 export async function fetchEraTransitions(
   options: GraphQlOptions & { onProgress?: (loaded: number, total: number) => void } = {},
@@ -131,21 +116,16 @@ export interface EraIndexBuild {
  * Turns transitions into era *starts*, in the contiguous columnar form the
  * client binary-searches.
  *
- * **The shift lives here and nowhere else.** A transition tagged era N is the
- * moment N ended, so it is the moment N+1 began: `start(N+1) = transition(N)`.
- * Every entry therefore moves up by one, and the index covers eras
- * `firstTransition + 1` through `lastTransition + 1`.
+ * The shift lives here and nowhere else: a transition tagged era N is the
+ * moment N ended and N+1 began, so `start(N+1) = transition(N)` and the index
+ * covers `firstTransition + 1` through `lastTransition + 1`.
  *
- * Era 0's start is *not* recoverable from this source — it is genesis, and no
- * transition precedes it — so the index simply begins at era 1. Inventing a
- * start for era 0 by subtracting 24 hours would be a guess, and era 0 is
- * exactly the kind of edge a reconciliation would land on.
+ * Era 0's start is not recoverable from this source — it is genesis, with no
+ * transition before it — so the index begins at era 1 rather than guessing.
  *
- * **Throws on a gap rather than filling one.** A missing era would shift every
- * subsequent entry by one, so every era after the gap would report the wrong
- * date — the kind of error that looks entirely plausible in a CSV and is
- * invisible until someone reconciles it against an explorer. If the indexer is
- * missing a transition, the right response is to fail the run and find out why.
+ * Throws on a gap rather than filling one: a missing era shifts every
+ * subsequent entry, so every date after it would be wrong in a way that looks
+ * plausible in a CSV until someone reconciles it against an explorer.
  */
 export function buildEraIndex(transitions: readonly EraTransition[]): EraIndexBuild {
   if (transitions.length === 0) throw new Error('No era transitions returned by the indexer.');

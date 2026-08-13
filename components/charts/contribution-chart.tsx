@@ -9,19 +9,15 @@ import { Legend, type LegendItem } from './legend';
 
 /**
  * A field of categories, each broken into signed parts that sum to its total.
+ * Where `DeviationChart` asks "is this one outside the noise?", this asks what
+ * made it so. Positive parts stack up from the baseline and negative parts
+ * down, with a tick marking the net — which is not where either stack ends,
+ * since a category can be pushed both ways at once.
  *
- * `DeviationChart` draws one value per category and asks "is this one outside
- * the noise?". This draws the same field and asks the next question: *what made
- * it so?* Positive parts stack upward from the baseline and negative parts
- * downward, with a tick marking the net — which is not where either stack ends,
- * since a category can be pushed both ways at once and the tick is the only
- * honest place to read the answer.
- *
- * **The parts must genuinely sum to the net.** Callers build them with a
- * logarithmic-mean split (see `lib/metrics/returns.ts`), so the segments are an
- * attribution rather than an illustration. A stacked chart whose parts merely
- * approximate the total teaches the reader to distrust the arithmetic, which is
- * worse than not drawing it.
+ * The parts must genuinely sum to the net; callers build them with a
+ * logarithmic-mean split (see `lib/metrics/returns.ts`). A stacked chart whose
+ * parts only approximate the total teaches the reader to distrust the
+ * arithmetic.
  */
 
 export interface ContributionSegment {
@@ -30,10 +26,8 @@ export interface ContributionSegment {
   colour: string;
   value: number;
   /**
-   * Draw this part as provisional.
-   *
-   * For a factor that is real but does not persist — the stake advantage here —
-   * so a tall bar built from it cannot be mistaken for a durable one.
+   * Draw this part as provisional — for a factor that is real but does not
+   * persist, so a tall bar built from it cannot be mistaken for a durable one.
    */
   provisional?: boolean;
 }
@@ -191,12 +185,9 @@ function ContributionPlot({
   const box = plotBox(width, height, { ...margin, right: 16, bottom: 12 });
 
   /**
-   * Stacked extents, not the raw values.
-   *
-   * The domain has to reach the top of the upward stack and the bottom of the
-   * downward one. Fitting it to the individual parts, or to the net, clips
-   * every bar whose factors pull in opposite directions — which is most of the
-   * interesting ones.
+   * Stacked extents, not the raw values: the domain has to reach the top of the
+   * upward stack and the bottom of the downward one. Fitting it to the parts,
+   * or to the net, clips every bar whose factors pull in opposite directions.
    */
   const y = useMemo(() => {
     const highs: number[] = [];
@@ -241,8 +232,8 @@ function ContributionPlot({
 
               {items.map((item, i) => {
                 const x = centre(i) - barWidth / 2;
-                // Two running totals, so a part that pulls the other way starts
-                // from the baseline rather than from the far end of the stack.
+                // Two running totals, so a part pulling the other way starts
+                // from the baseline rather than the far end of the stack.
                 let up = 0;
                 let down = 0;
                 return (
@@ -265,9 +256,8 @@ function ContributionPlot({
                           width={barWidth}
                           height={Math.max(0.5, Math.abs(y(to) - y(from)))}
                           fill={segment.colour}
-                          // The provisional factor is drawn at reduced weight
-                          // rather than in a different hue: it is the same kind
-                          // of quantity, just one that will not last.
+                          // Reduced weight rather than a different hue: the
+                          // same kind of quantity, just one that will not last.
                           opacity={segment.provisional ? 0.5 : 1}
                         />
                       );

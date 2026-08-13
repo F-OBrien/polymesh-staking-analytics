@@ -18,24 +18,15 @@ import {
 } from '@/lib/data/operator-rows';
 
 /**
- * The operator directory.
- *
- * This is the page's primary content, above the charts, because a ranked table
- * is how anyone actually answers "who should I nominate?". The previous app had
- * no table at all — the only way to compare operators was a hundred overlapping
- * lines.
- *
- * Sorting and filtering are hand-rolled (see `lib/data/operator-rows.ts` for
- * why). At ~100 rows there is nothing to virtualise, and the logic being pure
- * means it is tested without a DOM.
+ * The operator directory — the page's primary content, above the charts,
+ * because a ranked table is how anyone answers "who should I nominate?".
+ * Sorting and filtering are hand-rolled; see `lib/data/operator-rows.ts`.
  */
 
 /**
- * Whether returns are shown before or after the operator's commission.
- *
- * One control for the whole table rather than a per-column choice: the columns
- * exist to be compared with each other, and comparing a gross figure against a
- * net one is the mistake the control is there to prevent.
+ * Whether returns are shown before or after commission. One control for the
+ * whole table, not per column — the columns exist to be compared with each
+ * other, and mixing bases is the mistake this prevents.
  */
 export type CommissionBasis = 'net' | 'gross';
 
@@ -56,17 +47,10 @@ interface Column {
 }
 
 /**
- * Columns.
- *
- * There were three separate problems with the single `Return` column this
- * replaces, and they compounded. It did not say what period it covered (a mean
- * over whatever era range happened to be selected). It did not say whether
- * commission had been taken off. And by being backward-looking only, it could
- * not answer the question people actually open the page with — is this node
- * working right now, and what will it pay me next.
- *
- * Three columns, each named for its period, plus a basis toggle that names the
- * commission treatment once for all of them.
+ * Columns. Never a single `Return`: three columns each named for its period,
+ * plus a basis toggle naming the commission treatment once for all of them.
+ * Anything less cannot answer "is this node working right now, and what will it
+ * pay me next" without also being ambiguous about what it covers.
  */
 function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Column[] {
   const suffix = basis === 'net' ? 'after commission' : 'before commission';
@@ -77,9 +61,9 @@ function columns({ basis, rangeEras, lastEra, eraProgress }: ColumnContext): Col
     { key: 'name', label: 'Operator', sort: 'name' },
     {
       key: 'thisEra',
-      // How far into the era we are is part of reading this number, not a
-      // detail: at 5% elapsed it is barely more than noise, at 90% it is nearly
-      // settled. Ticks locally from the tier-3 clock, costing no network.
+      // How far into the era we are is part of reading this number: at 5%
+      // elapsed it is barely more than noise, at 90% nearly settled. Ticks
+      // locally from the era clock, costing no network.
       note: elapsed == null ? 'est.' : `est. · ${elapsed}% in`,
       label: 'This era',
       sortByBasis: { net: 'aprThisEra', gross: 'aprThisEraGross' },
@@ -230,20 +214,13 @@ export function OperatorsTable({
   onClearPins,
 }: OperatorsTableProps) {
   /**
-   * Default sort is the typical era's return.
+   * Default sort is the typical era's return: stable, representative, and it
+   * answers "who should I nominate?".
    *
-   * The table exists to answer "who should I nominate?", so it is not sorted by
-   * stake — the election equalises that, and the whole field sits within a few
-   * percent of each other. It was sorted by *this era's* estimate, which is
-   * worse than it sounds: measured at era 1751, the top two rows were operators
-   * holding 2.1M and 2.4M against a median of 6.55M, reading 54.57% and 41.67%.
-   * Both figures are correct — a smaller stake divides the same rewards fewer
-   * ways — and both are the opposite of a reason to nominate, because adding
-   * stake is precisely what removes the advantage. Leading a public page with
-   * them invites the one mistake this table should prevent.
-   *
-   * Typical era is stable, representative, and still answers the question. A
-   * reader who wants the live view clicks the column.
+   * Not this era's estimate, which puts small-stake operators on top — a
+   * smaller stake divides the same rewards fewer ways, and nominating is
+   * precisely what removes the advantage. A reader who wants that view clicks
+   * the column.
    */
   const [sortKey, setSortKey] = useState<SortKey>('aprMedian');
   const [direction, setDirection] = useState<SortDirection>('desc');
@@ -277,9 +254,8 @@ export function OperatorsTable({
 
   const changeBasis = (next: CommissionBasis) => {
     setBasis(next);
-    // Follow the sort to the same *column* on the new basis. Without this,
-    // flipping to gross while sorted by net return silently reorders by a
-    // column that is no longer on screen.
+    // Follow the sort to the same column on the new basis, or flipping to
+    // gross while sorted by net reorders by a column no longer on screen.
     const active = cols.find((c) => c.sortByBasis && c.sortByBasis[basis] === sortKey);
     if (active?.sortByBasis) setSortKey(active.sortByBasis[next]);
   };
@@ -390,8 +366,8 @@ function HeaderCell({
   return (
     <th
       scope="col"
-      // `aria-sort` is what tells a screen-reader user the table is sorted and
-      // by which column — the arrow glyph alone conveys nothing to them.
+      // `aria-sort` carries the sort state for screen readers; the arrow glyph
+      // conveys nothing to them.
       aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : undefined}
       className={`sticky top-0 z-10 border-b px-2 py-2 font-medium whitespace-nowrap ${
         column.numeric ? 'text-right' : 'text-left'
@@ -423,8 +399,7 @@ function HeaderCell({
             unreachable by keyboard and invisible on touch. */}
         {column.help ? <InfoTip label={`About ${column.label}`}>{column.help}</InfoTip> : null}
       </span>
-      {/* The period a column covers is part of its identity, not a footnote —
-          "Return" meaning three different things was the original problem. */}
+      {/* The period a column covers is part of its identity, not a footnote. */}
       {column.note ? (
         <span
           className="block text-[10px] font-normal"
@@ -520,12 +495,9 @@ function Numeric({ children, hide }: { children: React.ReactNode; hide?: 'sm' | 
 /**
  * Status badges. Icon plus text, never colour alone.
  *
- * There used to be a "full" badge here for any operator with more than 64
- * nominators, warning that new ones "may earn nothing". It was wrong: Polymesh
- * uses paged exposures, every page is rewarded, and the chain pays each page
- * automatically. A badge that tells people to avoid the most-nominated
- * operators is worse than no badge, so it is gone rather than reworded — see
- * the note on `pageCount` in `lib/schemas/data.ts`.
+ * Deliberately no "full" badge for heavily nominated operators: Polymesh pages
+ * exposures and rewards every page, so it would steer people away from good
+ * nodes. See `pageCount` in `lib/schemas/data.ts`.
  */
 function StatusFlags({ row }: { row: OperatorRow }) {
   const flags: { label: string; colour: string; title: string }[] = [];
@@ -630,9 +602,9 @@ function Filters({
         <option value="all">All statuses</option>
       </select>
 
-      {/* Which commission basis every return column is on. Stated once, as a
-          control rather than a footnote, because it is the single most common
-          way two staking sites appear to disagree about the same operator. */}
+      {/* The commission basis for every return column: a control rather than a
+          footnote, since it is the most common way two staking sites appear to
+          disagree about the same operator. */}
       <label className="sr-only" htmlFor="operator-basis">
         Commission basis for returns
       </label>
@@ -649,10 +621,9 @@ function Filters({
 
       {liveControl}
 
-      {/* Unpinning was previously only a muted text link in a sentence above
-          the filter row — far from the ★ column, and easy to miss once a few
-          were pinned. A real button, in the row of controls, beside the thing
-          it undoes. */}
+      {/* A real button in the controls row, beside the thing it undoes — a
+          text link above the filters is easy to miss once several are
+          pinned. */}
       {pinnedCount > 0 && onClearPins ? (
         <button
           type="button"

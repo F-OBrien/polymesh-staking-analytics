@@ -3,15 +3,12 @@
 import type { ApiLike } from './compat';
 
 /**
- * A stash's current staking position.
+ * A stash's current staking position, from chain state rather than the indexer
+ * — "how much is bonded right now" is a state question, and the indexer knows
+ * only events.
  *
- * Read from chain state rather than the indexer, because "how much do I have
- * bonded right now" is a state question and the indexer only knows events.
- *
- * Everything here is exact — balances are `bigint` in base units all the way
- * through — because a user reconciling against their wallet or an explorer will
- * notice a rounding difference immediately, and a staking page that disagrees
- * with the wallet is worse than no staking page.
+ * Balances stay `bigint` in base units throughout: a user reconciling against
+ * their wallet notices a rounding difference immediately.
  */
 
 export interface UnbondingChunk {
@@ -50,11 +47,10 @@ const toBigInt = (value: unknown): bigint => {
 /**
  * Reads everything `/my-staking` needs about one stash.
  *
- * The controller indirection matters and is easy to get wrong: `staking.ledger`
- * is keyed by *controller*, not stash, so reading it with a stash address
- * returns nothing for most accounts. `staking.bonded(stash)` gives the
- * controller; only then can the ledger be read. Skipping that step is the
- * classic way to show a bonded account as unbonded.
+ * Note the controller indirection: `staking.ledger` is keyed by controller, not
+ * stash, so reading it with a stash address returns nothing for most accounts
+ * and shows a bonded account as unbonded. `staking.bonded(stash)` gives the
+ * controller first.
  */
 export async function readStashPosition(
   api: ApiLike,
@@ -82,8 +78,7 @@ export async function readStashPosition(
     unbonding.push({ era, value });
     unbondingTotal += value;
     // A chunk unlocks *at* its era, so one whose era has arrived is already
-    // withdrawable — `>=`, not `>`. Off by one here understates what a user can
-    // take out today.
+    // withdrawable. Off by one here understates what can be taken out today.
     if (era <= activeEra) redeemable += value;
   }
 
@@ -105,23 +100,13 @@ export async function readStashPosition(
 }
 
 /**
- * The reward destination: the variant name, or the address for `Account`.
+ * The reward destination: the variant name, or the address for `Account`. Only
+ * `Staked` compounds, so this has to be right rather than merely present.
  *
- * The distinction matters to a user — only `Staked` compounds — so this has to
- * be right rather than merely present.
- *
- * **`staking.payee` is an `Option<RewardDestination>`, not a bare enum**, and
- * getting that wrong is what broke this. The original read `payee.isAccount`,
- * which is an accessor on the *inner* enum; on the `Option` wrapper it is
- * simply `undefined`, so the branch never fired and an account destination
- * rendered in the UI as the raw JSON `{"account":"2GD3…"}`. I first blamed
- * missing type augmentation. It was not that — registering
- * `@polymeshassociation/polymesh-types` typed this as
- * `Option<PalletStakingRewardDestination>` and the compiler pointed straight at
- * the real mistake.
- *
- * `toJSON()` is still the fallback because it unwraps an `Option` transparently
- * and is stable across runtimes, but the enum path is now used properly.
+ * Note `staking.payee` is an `Option<RewardDestination>`, not a bare enum —
+ * accessors like `isAccount` live on the inner enum and are `undefined` on the
+ * wrapper, which silently renders a destination as raw JSON. `toJSON()` remains
+ * the fallback since it unwraps an `Option` transparently.
  */
 function readPayee(payee: any): string | null {
   if (payee == null) return null;
@@ -145,8 +130,8 @@ function readPayee(payee: any): string | null {
       if (variant == null) return null;
       // `{ account: "2GD3…" }` — show the address, which is the useful part.
       if (typeof value === 'string' && value.length > 0) return value;
-      // Any other single-key variant: report its name, capitalised to match
-      // the unit variants ("staked" -> "Staked").
+      // Any other single-key variant: its name, capitalised to match the unit
+      // variants ("staked" -> "Staked").
       return variant.charAt(0).toUpperCase() + variant.slice(1);
     }
     return null;
@@ -175,26 +160,13 @@ function readSubmittedEra(nominators: any): number | null {
 }
 
 /**
- * **There is deliberately no `readUnclaimedEras` here**, though §9.6 lists
- * "unclaimed eras, if determinable" as a payouts feature. It is not
- * determinable at acceptable cost or confidence, and the clause allows for it.
+ * There is deliberately no `readUnclaimedEras`, though §9.6 allows for one "if
+ * determinable". It is not, at acceptable cost: the obvious implementation
+ * (diffing the ledger's `claimedRewards`) tracks which pages a *validator*
+ * claimed, whereas a nominator earns only where a backed operator was elected
+ * and they landed inside its exposure page — establishing which is on the order
+ * of a thousand storage reads from the browser.
  *
- * The obvious implementation — diff the ledger's `claimedRewards` against the
- * history-depth window — is wrong for nominators. That field tracks which
- * *pages* a validator has claimed for itself; a nominator earns only in eras
- * where an operator they backed was elected *and* they landed inside that
- * operator's exposure page. Establishing that means reading exposures for every
- * era in the window against every nomination, which is on the order of a
- * thousand storage reads from a user's browser — precisely the pattern this
- * rebuild exists to remove.
- *
- * Presenting the cheap version would tell people they have unclaimed rewards
- * they do not have. Since signing is out of scope (Q8) there is no action to
- * take on the answer anyway, so the page shows what the indexer can state
- * exactly — every payout actually received, and when the last one landed —
- * and says nothing about what might be owed.
- *
- * Revisit when signing lands: at that point the payout flow needs the real
- * answer, and it should come from the indexer's `Rewarded` events rather than
- * from a storage sweep.
+ * Revisit when signing lands, and source it from the indexer's `Rewarded`
+ * events rather than a storage sweep.
  */

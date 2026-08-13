@@ -16,24 +16,17 @@ import { explorerBlockUrl } from '@/config/networks';
 import type { OffenceReport, SlashEvent, SlashingScope } from '@/lib/schemas/data';
 
 /**
- * Offences, and the penalty model behind them.
+ * Offences, and the penalty model behind them. Three parts, in this order for a
+ * reason:
  *
- * Three parts, in this order deliberately.
- *
- * **What was reported** comes first, because it is the record of conduct and it
- * is not empty: 36 incidents against 21 operators over the chain's life.
- *
- * **What it cost** comes second, and on Polymesh the answer is nothing at all.
- * That ordering matters. Built from `validatorSlashInEra`, the cost record is
- * empty — and led on its own it reads as "no operator has ever done anything
- * wrong", which flatters every node that has ever been offline.
- *
- * **What could happen** comes last: the two penalty curves the previous app
- * showed as `FineCurves`, unlabelled, in the Overview tab, where they were easy
- * to mistake for history. They are worth keeping because both penalties are
- * superlinear in how many operators fail *together* — the reason spreading
- * nominations across independent operators matters — but only with that said
- * out loud.
+ *  1. What was reported — the record of conduct, and not empty.
+ *  2. What it cost, which on Polymesh is nothing. Led on its own, this reads as
+ *     "no operator has ever done anything wrong" and flatters every node that
+ *     has been offline.
+ *  3. What could happen — the penalty curves. Both penalties are superlinear in
+ *     how many operators fail *together*, which is why spreading nominations
+ *     across independent operators matters, but they are easy to mistake for
+ *     history unless that is said out loud.
  */
 export function SlashingView() {
   const slashes = useSlashes();
@@ -49,8 +42,8 @@ export function SlashingView() {
     [validatorCount],
   );
 
-  // Memoised rather than defaulted inline: a fresh `[]` on every render would
-  // re-run the totals below each time the component painted.
+  // Memoised, not defaulted inline: a fresh `[]` each render would re-run the
+  // totals below on every paint.
   const events = useMemo(() => slashes.data?.events ?? [], [slashes.data]);
   const nameOf = (address: string) => registry.data?.[address]?.name ?? truncateAddress(address);
 
@@ -230,11 +223,10 @@ export function SlashingView() {
   );
 
   /**
-   * How far back the record reaches, and where it stops being trustworthy.
-   *
-   * Not a footnote. Slash storage is pruned with the rest of an era's staking
-   * state, so an empty table means "no offences we can see", and the difference
-   * between that and "no offences" is the whole credibility of the page.
+   * How far back the record reaches. Slash storage is pruned with the rest of
+   * an era's staking state, so an empty table means "no offences we can see" —
+   * and the difference between that and "no offences" is the page's whole
+   * credibility.
    */
   function CoverageNote() {
     if (!slashes.data) return null;
@@ -266,17 +258,12 @@ export function SlashingView() {
 }
 
 /**
- * Offences the chain *reported*, as opposed to slashes it charged for.
+ * Offences the chain *reported*, as against slashes it charged for — the record
+ * of conduct, where the section above is the record of cost.
  *
- * These are two different records and the difference is the point of this
- * section. The table above is built from `validatorSlashInEra` — what was
- * actually taken — and on Polymesh that is empty, because slashing is switched
- * off. Read alone it says nothing has ever gone wrong, which is not true: the
- * chain has reported 36 incidents against 21 operators, every one of them free.
- *
- * So this is the record of conduct, and the section above is the record of
- * cost. Presenting only the second would flatter every operator that has ever
- * been offline.
+ * The distinction is the point: that section reads `validatorSlashInEra`, which
+ * is empty on Polymesh because slashing is switched off, so alone it would say
+ * nothing has ever gone wrong. Reports show otherwise.
  */
 function ReportedOffences() {
   const offences = useOffences();
@@ -287,8 +274,8 @@ function ReportedOffences() {
   const operators = useMemo(() => new Set(reports.map((r) => r.address)).size, [reports]);
   const charged = useMemo(() => reports.filter((r) => r.fraction > 0).length, [reports]);
 
-  // An error here must not take the page down: the section above is the one a
-  // nominator came for, and this file is a separate fetch.
+  // A separate fetch, and the section above is what a nominator came for, so
+  // an error here must not take the page down.
   if (offences.isError) return null;
 
   return (

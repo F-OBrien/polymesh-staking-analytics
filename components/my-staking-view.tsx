@@ -56,14 +56,8 @@ import {
 } from '@/lib/format';
 
 /**
- * One person's staking position.
- *
- * **The disconnected state is the design problem here, not the connected one.**
- * Most staking dashboards render a wall with a Connect button, which is useless
- * to anyone evaluating the chain, anyone on a phone without an extension, and
- * anyone who simply wants to look at an address. So this page always shows what
- * it can: paste any stash and get its full position and payout history, with no
- * wallet involved.
+ * One person's staking position. No connect wall: paste any stash and get its
+ * full position and payout history with no wallet involved.
  *
  * Reward history comes from the indexer over plain `fetch`, so that half works
  * with none of the Polkadot stack loaded. Only the on-chain position — bonded,
@@ -82,11 +76,9 @@ const PERIOD_NOUN: Record<RewardPeriod, string> = {
 const PERIODS: RewardPeriod[] = ['day', 'week', 'month', 'year'];
 
 /**
- * Grouping for the reward bars.
- *
- * Starts on whatever the history's length suggests and says so, because an
- * unexplained "monthly" on a chart the reader did not set is confusing. Picking
- * a grain explicitly pins it.
+ * Grouping for the reward bars. Starts on whatever the history's length
+ * suggests and says "auto", since an unexplained "monthly" is confusing;
+ * picking a grain explicitly pins it.
  */
 function PeriodControl({
   value,
@@ -140,8 +132,8 @@ function PeriodControl({
 export function MyStakingView() {
   const { stash, setStash, clear } = useStashAddress();
   const wallet = useWallet();
-  // `Date.now()` during render is impure and unstable across re-renders; every
-  // duration on this page is measured against this instead.
+  // Every duration on this page measures against this — `Date.now()` during
+  // render is impure and unstable across re-renders.
   const now = useNow();
   const manifest = useManifest();
   const latest = useLatest();
@@ -152,37 +144,26 @@ export function MyStakingView() {
   const activeEra = latest.data?.activeEra;
   const position = useStashPosition(stash, activeEra);
 
-  /**
-   * Reward history, in two stages.
-   *
-   * The totals are one request. The event-by-event walk is one request per 100
-   * payouts — 119 of them for a real account we measured — so it is held back
-   * until a reader asks for the detail. Everything above the fold comes from
-   * the cheap query.
-   */
+  // Reward history in two stages: totals are one request, and everything above
+  // the fold comes from them. The event-by-event walk is one request per 100
+  // payouts, so it waits until a reader asks for the detail.
   const totals = useRewardTotals(stash);
 
-  /**
-   * Which address the reader asked for full history on — not a boolean.
-   *
-   * A plain `showHistory` flag stayed true when the address changed, so pasting
-   * a second stash silently kicked off a 119-request walk nobody asked for.
-   * Storing the address it was granted for makes the reset structural rather
-   * than something an effect has to remember.
-   */
+  // The address history was granted for, not a boolean — so pasting a second
+  // stash cannot inherit the first one's consent to a long walk.
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const showHistory = historyFor === stash && stash !== '';
 
-  // 34 KB, fetched only alongside the detail: it is what fills in which era
-  // each payout was earned in, and it is useless without the events.
+  // Fetched only alongside the detail — it fills in which era each payout was
+  // earned in, and is useless without the events.
   const eraIndex = useEraIndex(showHistory);
   const rewards = useRewardHistory(stash, {
     enabled: showHistory,
     eraIndex: eraIndex.data,
   });
 
-  // Live defaults on once a wallet is connected: that user has already paid for
-  // `@polkadot/api`, so the subscription costs them nothing extra (§6.6a).
+  // Defaults on with a wallet connected: that user has already paid for
+  // `@polkadot/api`, so the subscription costs nothing extra (§6.6a).
   const live = useLive({ stash, defaultEnabled: wallet.accounts.length > 0 });
 
   const tokenDecimals = manifest.data?.chain.tokenDecimals ?? 6;
@@ -190,23 +171,16 @@ export function MyStakingView() {
 
   const summary = useMemo(() => summariseRewards(rewards.data?.events ?? []), [rewards.data]);
 
-  // Prefer the server-side aggregate; fall back to the walk's own sum once it
-  // has run. The two are verified to agree exactly on real data.
+  // Prefer the server-side aggregate, falling back to the walk's own sum. The
+  // two agree exactly on real data.
   const lifetimeTotal = totals.data?.total ?? summary.total;
   const payoutCount = totals.data?.count ?? summary.count;
-  // The first and last payout come back with the totals, in the same request,
-  // so neither of these has to wait on the full walk.
+  // Also from the totals request, so neither waits on the full walk.
   const firstPayout = totals.data?.first ?? summary.first;
   const lastPayout = totals.data?.last ?? summary.last;
 
-  /**
-   * How finely the reward bars are grouped.
-   *
-   * Null means "follow the history's length" — a five-year daily history is
-   * 1,800 sub-pixel bars, so the default coarsens itself. An explicit choice
-   * overrides it, because the right grain depends on the question: monthly to
-   * see a trend, daily to find the week something stopped.
-   */
+  // Null means "follow the history's length"; an explicit choice overrides it,
+  // since the right grain depends on the question.
   const [period, setPeriod] = useState<RewardPeriod | null>(null);
   const events = useMemo(() => rewards.data?.events ?? [], [rewards.data]);
   const effectivePeriod = period ?? suggestPeriod(events);
@@ -224,9 +198,8 @@ export function MyStakingView() {
     [series, latest.data, registry.data, manifest.data],
   );
 
-  // Live nominations win over the snapshot read when the socket is up — this is
-  // the tier-4 "upgrade in place" in action. Memoised so the `??` chain does not
-  // produce a fresh array on every render and re-run everything below it.
+  // Live nominations win over the snapshot read when the socket is up.
+  // Memoised so the `??` chain does not produce a fresh array every render.
   const nominations = useMemo(
     () => live.state.nominations ?? position.data?.nominations ?? [],
     [live.state.nominations, position.data],
@@ -237,14 +210,6 @@ export function MyStakingView() {
     [nominations, operatorRows],
   );
 
-  /**
-   * What the election actually did with the bond.
-   *
-   * Distinct from the nomination list in a way that is easy to miss: Phragmén
-   * assigns a nominator's stake to a *subset* of their targets, so eight
-   * nominations commonly means backing one. And stake bonded or nominated since
-   * the last election is not in this era's exposure at all.
-   */
   const labelOf = useMemo(() => buildLabeller(registry.data), [registry.data]);
 
   // Unknown counts as active: a registry that has not loaded is not evidence
@@ -254,14 +219,8 @@ export function MyStakingView() {
     [registry.data],
   );
 
-  /**
-   * C24: this address's own operators, as APR series for the banded chart.
-   *
-   * Capped at the palette size for the same reason `/operators` caps pins — a
-   * ninth series would reuse a colour already on screen, which reads as "these
-   * two are the same". A nominator with more than eight targets sees the first
-   * eight and the table covers the rest; the note under the chart says so.
-   */
+  // Capped at the palette size: a further series would reuse a colour already
+  // on screen. The note under the chart says how many are not drawn.
   const myAprSeries = useMemo<NamedSeries[]>(() => {
     if (!series) return [];
     return nominations.slice(0, MAX_NAMED_SERIES).flatMap((address) => {
@@ -272,15 +231,9 @@ export function MyStakingView() {
     });
   }, [series, nominations, labelOf, manifest.data?.erasPerYear]);
 
-  /**
-   * See the note in `operator-detail.tsx`. Taken across every series drawn.
-   *
-   * This chart needs it as much as any: a nominator commonly backs an operator
-   * that joined recently, and a first era on its own bond with no nominators
-   * pays a multiple of everything after it. One such point sets the axis and
-   * presses this address's other seven operators, the band and the median into
-   * a line along the bottom.
-   */
+  // Across every series drawn — see the note in `operator-detail.tsx`. A
+  // recently joined operator's first era pays a multiple of everything after
+  // it, and one such point flattens the rest of the chart.
   const aprCap = useMemo(
     () =>
       outlierCap(
@@ -303,13 +256,8 @@ export function MyStakingView() {
     return map;
   }, [currentTargets]);
 
-  /**
-   * What this address's operator choice is worth, against the average.
-   *
-   * Weighted by what the election actually assigned, not by the nomination
-   * list: sixteen nominations with stake behind one of them is normal, and an
-   * unweighted average would describe a portfolio nobody holds.
-   */
+  // Weighted by what the election actually assigned, not by the nomination
+  // list — an unweighted average would describe a portfolio nobody holds.
   const choice = useMemo(() => {
     if (!series) return null;
     return compareChoice({
@@ -325,17 +273,15 @@ export function MyStakingView() {
   }, [series, nominations, assignedByOperator, manifest.data?.erasPerYear]);
 
   const assigned = allocation.data?.current.assigned ?? null;
-  // Operators still holding this stash's stake that it no longer nominates —
-  // the result of re-nominating mid-era. They are earning, and the old UI
-  // could not see them at all.
+  // Operators still holding this stash's stake that it no longer nominates,
+  // from re-nominating mid-era. They are still earning.
   const unnominatedHolders = useMemo(
     () => (currentTargets ?? []).filter((t) => !t.nominated && t.value > 0n),
     [currentTargets],
   );
-  // The era the allocation was actually read at — from the chain, which can be
-  // one ahead of the snapshot's `activeEra` across a boundary. Every label in
-  // this section uses it, so the number on screen and the era named beside it
-  // can never disagree.
+  // From the chain, which can be one era ahead of the snapshot across a
+  // boundary. Every label in this section uses it, so a number and the era
+  // named beside it cannot disagree.
   const allocationEra = allocation.data?.current.era ?? null;
   const idle = position.data && assigned != null ? idleStake(position.data.active, assigned) : null;
   const previousAssigned = allocation.data?.previous?.assigned ?? null;
@@ -343,9 +289,8 @@ export function MyStakingView() {
   // is exposed directly rather than through anyone's nomination.
   const ownStake = allocation.data?.current.own ?? 0n;
 
-  // Needs the *first* payout's date to know over how long, which only the
-  // detail walk provides — so this stays null until the history is loaded
-  // rather than being computed against an unknown period.
+  // Null until the history loads: the period needs the first payout's date,
+  // which only the detail walk provides.
   const realised = useMemo(() => {
     const bonded = position.data?.active;
     const first = firstPayout?.datetime;
@@ -426,9 +371,9 @@ export function MyStakingView() {
               value={position.data ? formatPolyx(toPolyx(position.data.active)) : '—'}
               hint="not unbonding — but see what is assigned"
             />
-            {/* The number people assume "bonded" already means. It does not:
-                the election decides how much of a bond is actually exposed,
-                and stake bonded since the last election is exposed not at all. */}
+            {/* What "bonded" is assumed to mean but does not: the election
+                decides how much of a bond is exposed, and stake bonded since
+                the last election is exposed not at all. */}
             <StatTile
               label={`Assigned this era`}
               value={assigned == null ? '—' : formatPolyx(toPolyx(assigned))}
@@ -556,10 +501,9 @@ export function MyStakingView() {
               />
             </div>
 
-            {/* The detail walk, behind an explicit choice.
-                It is one request per 100 payouts against a public endpoint,
-                and the figures above already answer "how much have I earned".
-                The button states the cost rather than hiding it. */}
+            {/* The detail walk, behind an explicit choice: one request per 100
+                payouts against a public endpoint, when the figures above
+                already answer "how much have I earned". */}
             {!showHistory ? (
               <div className="mt-4">
                 <button
@@ -581,13 +525,10 @@ export function MyStakingView() {
               </div>
             ) : daily.length > 0 ? (
               <div className="mt-4">
-                {/* Was an axis-less `Sparkline` of the running total. A
-                    monotonic cumulative line always slopes up and to the right,
-                    so it showed a shape and never a quantity — and it hid the
-                    thing worth seeing, which is *when* the payouts came and
-                    whether any stopped. Bars are the per-day amount; the
-                    cumulative total sits under them on a shared x axis rather
-                    than on a second y axis (§8.1 rule 2). */}
+                {/* Bars, not a cumulative line: a monotonic total always
+                    slopes up and hides when the payouts came and whether any
+                    stopped. The running total sits under them on a shared x
+                    axis rather than a second y axis (§8.1 rule 2). */}
                 <LazyChart height={300} label="Rewards received">
                   <LazyTimeBarChart
                     title="Rewards received"
@@ -640,14 +581,9 @@ export function MyStakingView() {
       </section>
 
       <section aria-labelledby="my-operators" className="mt-12">
-        {/* The range control belongs here rather than at the top of the page.
-            Everything this window changes is inside this section: the
-            nominations table's return columns, the choice verdict, and both
-            charts. Above it are balances and a payout ledger, which an era
-            window has no bearing on — and the one figure up there that does
-            come from the era series, the network average, reads the newest era,
-            which every range ends at. At the top of the page the control would
-            claim to filter a page it mostly does not. */}
+        {/* The range control sits here, not at the top: everything the window
+            changes is inside this section. Above it are balances and a payout
+            ledger, which an era window has no bearing on. */}
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 id="my-operators" className="m-0 text-[22px] leading-7 font-semibold tracking-tight">
             Operators backed
@@ -660,9 +596,8 @@ export function MyStakingView() {
             <Skeleton height={200} label="Loading nominations" />
           </div>
         ) : position.isError ? (
-          // "No nominations" and "we could not read the nominations" are
-          // completely different facts, and showing the first when the second
-          // is true would tell someone they are earning nothing when they are.
+          // Distinct from "no nominations" — showing that here would tell
+          // someone they are earning nothing when they are.
           <div className="mt-4">
             <EmptyState
               title="Could not read nominations"
@@ -717,17 +652,10 @@ export function MyStakingView() {
               />
             ) : null}
 
-            {/*
-              C24. The same banded chart as /operators, with this address's own
-              picks as the named series — the table says what they charge and
-              what they hold today, and this says whether they have been worth
-              backing. Against the whole field's 10th-90th percentile band, so
-              "is 20.1% good?" has an answer on the same axes.
-
-              Everything it needs is already in memory: the era series is
-              fetched for the page anyway and the nominations come from the
-              position read. No additional request.
-            */}
+            {/* The same banded chart as /operators, with this address's picks
+                as the named series, against the field's 10th–90th percentile
+                band — so "is 20.1% good?" has an answer on the same axes.
+                Needs no extra request; everything is already in memory. */}
             {myAprSeries.length > 0 ? (
               <div className="mt-4">
                 <LazyChart height={300} label="My operators' return">
@@ -756,10 +684,8 @@ export function MyStakingView() {
                     height={300}
                     offerLogScale
                     cap={aprCap}
-                    // Kept short. It sits beside the frame's controls, and
-                    // every line it wraps to moves the Expand button down the
-                    // page. The full version of this caveat is in the subtitle
-                    // and in `lib/metrics/production.ts`.
+                    // Kept short — it sits beside the frame's controls, and
+                    // each wrapped line pushes the Expand button down.
                     note={
                       `One era's return is mostly slot luck; a sustained dip is an outage.` +
                       (myAprSeries.length < nominations.length
@@ -771,15 +697,10 @@ export function MyStakingView() {
               </div>
             ) : null}
 
-            {/*
-              And the ranking the chart above cannot give.
-
-              Accumulated over the range, block production separates operators
-              in a way per-era APR cannot — see `lib/metrics/production.ts`.
-              Showing the whole field with this address's own picks coloured is
-              the direct answer to "are my picks any good?": their position in
-              the field, against the band of what chance explains.
-            */}
+            {/* The ranking the chart above cannot give: accumulated over the
+                range, block production separates operators in a way per-era
+                APR cannot (see `lib/metrics/production.ts`). The whole field,
+                with this address's picks coloured. */}
             <div className="mt-4">
               <ProductionChart
                 series={series}
@@ -801,12 +722,9 @@ export function MyStakingView() {
 // ---------------------------------------------------------------------------
 
 /**
- * What the page shows before an address is chosen.
- *
- * Not a wall. It states what the page will do, offers the wallet if one is
- * available, and — equally prominent — takes any address. The address route is
- * not a fallback for the unlucky: it is how anyone inspects an account that is
- * not theirs, which is most of the reason to look at a staking page at all.
+ * What the page shows before an address is chosen. The paste-an-address route
+ * is as prominent as the wallet, not a fallback — inspecting an account that is
+ * not yours is most of the reason to look at a staking page.
  */
 function Disconnected({
   wallet,
@@ -1004,41 +922,12 @@ function UnbondingTable({
 }
 
 /**
- * Nominated operators, with a warning row for anything that should change a
- * decision.
+ * Was picking these operators worth anything? The rest of the page is
+ * absolutes; this splits the comparison into the two things a nominator can act
+ * on separately — the fee they agreed to, and how well the node runs.
  *
- * The warnings are the point. A nominator's realistic failure modes are backing
- * an operator whose page is full (earning nothing), one that has stopped being
- * elected, or one that quietly raised its commission — none of which announces
- * itself. §9.6 asks for exactly this.
- */
-/**
- * Why the numbers below may not be what the nomination list implies.
- *
- * Two things surprise people, and neither is a fault:
- *
- *  - **Nominating eight operators does not mean backing eight.** The election
- *    optimises the network's stake spread, not the nominator's, and commonly
- *    puts a whole bond behind one target. Observed on mainnet: 2,019,000 POLYX
- *    across eight elected operators, all of it assigned to one.
- *  - **Rewards arriving now are for the previous era.** So a stash that was
- *    assigned nothing last era earns nothing today, even though everything
- *    looks correct on screen.
- *
- * Only rendered when there is something to say, so a straightforward position
- * gets no lecture.
- */
-/**
- * Was picking these operators worth anything?
- *
- * The page is otherwise a list of absolutes — earned so far, realised return,
- * network average — and none of them answers that. This one does, and splits
- * the answer into the two things a nominator can act on separately: the fee
- * they agreed to, and how well the node runs.
- *
- * Deliberately a paragraph rather than tiles. The conclusion is a comparison
- * with a sign and a cause, and four numbers in boxes would make the reader
- * assemble it themselves.
+ * A paragraph rather than tiles, because the conclusion is a comparison with a
+ * sign and a cause, which four numbers in boxes would leave to the reader.
  */
 function ChoiceVerdict({
   choice,
@@ -1058,8 +947,7 @@ function ChoiceVerdict({
   const points = (value: number) => `${(value * 100).toFixed(2)} points`;
   const ahead = choice.difference >= 0;
 
-  // Priced against assigned stake, not the bond: idle stake earns nothing, so
-  // quoting the gap on it would overstate what the choice is worth this era.
+  // Priced against assigned stake, not the bond — idle stake earns nothing.
   const stake = assigned != null ? toPolyx(assigned) : null;
   const worth = stake != null && stake > 0 ? stake * choice.difference : null;
 
@@ -1072,9 +960,9 @@ function ChoiceVerdict({
     >
       <h3 className="m-0 mb-1 text-[15px] font-semibold">Is this a good set of operators?</h3>
       <p className="m-0 max-w-[75ch]" style={{ color: 'var(--text-secondary)' }}>
-        {/* Named precisely. Weighting by assigned stake commonly reduces
-            sixteen nominations to the one the election used, and calling that
-            "your operators" would credit the set for one member's record. */}
+        {/* Named precisely: weighting by assigned stake commonly reduces many
+            nominations to the one the election used, and "your operators"
+            would credit the whole set for one member's record. */}
         Over {formatNumber(choice.eras)} eras{' '}
         {backing === 1
           ? 'the operator your stake is actually behind'
@@ -1092,10 +980,10 @@ function ChoiceVerdict({
           : ' Nothing is assigned this era, so it is worth nothing until the next election.'}
       </p>
       <p className="mt-2 mb-0 max-w-[75ch]" style={{ color: 'var(--text-secondary)' }}>
-        {/* The split, and which half actually decided it. Commission is the
-            larger lever on this network — it spans 8% to 10% while block
-            production separates operators by about 1% — so saying which one
-            drove the result is usually the actionable part. */}
+        {/* The split, and which half decided it. Commission is the larger
+            lever on this network (it spans 8–10%, where production separates
+            operators by about 1%), so naming the driver is the actionable
+            part. */}
         Commission accounts for {points(choice.fromCommission)} of that (
         {formatPercent(choice.yourCommission, { decimals: 2 })} against{' '}
         {formatPercent(choice.fieldCommission, { decimals: 2 })} across the field), and block
@@ -1112,6 +1000,11 @@ function ChoiceVerdict({
   );
 }
 
+/**
+ * Why the numbers may not be what the nomination list implies: the election
+ * commonly puts a whole bond behind one of eight targets, and rewards arriving
+ * now are for the previous era. Renders only when there is something to say.
+ */
 function AllocationNote({
   activeEra,
   assigned,
@@ -1138,8 +1031,8 @@ function AllocationNote({
 
   const notes: string[] = [];
 
-  // Said first, because it is the one that otherwise looks like a bug: the
-  // nomination list and the stake do not agree, and both are correct.
+  // First, because it otherwise looks like a bug: the nomination list and the
+  // stake disagree, and both are correct.
   if (unnominated != null && unnominated > 0n) {
     notes.push(
       `${formatPolyx(toPolyx(unnominated))} POLYX is still staked with ` +
@@ -1196,6 +1089,11 @@ function AllocationNote({
   );
 }
 
+/**
+ * Nominated operators, with a warning row for anything that should change a
+ * decision — an operator no longer elected, blocked, or charging more than the
+ * field. See `nominationWarnings`.
+ */
 function NominationsTable({
   rows,
   addresses,
@@ -1214,8 +1112,8 @@ function NominationsTable({
   toPolyx: (value: bigint) => number;
   loading: boolean;
 }) {
-  // An address with no row is one we hold no data for — still shown, because
-  // silently dropping a nomination would misrepresent the position.
+  // Addresses we hold no data for. Still shown — dropping a nomination would
+  // misrepresent the position.
   const unknown = addresses.filter((address) => !rows.some((row) => row.address === address));
 
   return (
@@ -1239,18 +1137,14 @@ function NominationsTable({
             <th scope="col" className="p-2 text-left font-medium">
               Operator
             </th>
-            {/* The column that turns a list of intentions into a list of
-                facts: which of these operators the stake is actually behind. */}
+            {/* Turns a list of intentions into a list of facts: which of these
+                operators the stake is actually behind. */}
             <th scope="col" className="p-2 text-right font-medium">
               Assigned this era
             </th>
-            {/* Two eras, not a mean. The mean over the selected range is
-                dominated by an operator's *first* era, which pays on its own
-                bond with no nominators and a full share of points — one Huobi
-                node read 48.59% here against about 20% for every era since. A
-                nominator reading that column would conclude the wrong thing
-                about the operator they are about to back, which is the one
-                mistake this table exists to prevent. */}
+            {/* Two eras, not a mean: a mean over the range is dominated by an
+                operator's first era, which pays on its own bond with no
+                nominators and a full share of points. */}
             <th scope="col" className="p-2 text-right font-medium">
               This era
               <span className="block text-xs font-normal" style={{ color: 'var(--text-muted)' }}>
@@ -1325,8 +1219,7 @@ function NominationsTable({
               <th scope="row" className="p-2 text-left font-normal">
                 <CopyAddress address={address} />
               </th>
-              {/* Assigned, this era, last era, commission — one dash each, so
-                  the row keeps the header's column count. */}
+              {/* One dash each, to keep the header's column count. */}
               <td className="p-2 text-right">—</td>
               <td className="p-2 text-right">—</td>
               <td className="p-2 text-right">—</td>
@@ -1336,9 +1229,9 @@ function NominationsTable({
               </td>
             </tr>
           ))}
-          {/* Operators that still hold this stash's stake but are no longer
-              nominated. Omitting them would show a position as unassigned when
-              it is earning normally — and this row is the whole explanation. */}
+          {/* Still holding this stash's stake though no longer nominated.
+              Omitting them shows a position as unassigned when it is earning
+              normally. */}
           {unnominatedHolders.map((holder) => (
             <tr key={holder.address} style={{ borderTop: '1px solid var(--border)' }}>
               <th scope="row" className="p-2 text-left font-normal">
@@ -1368,15 +1261,9 @@ function NominationsTable({
 }
 
 /**
- * Renders a reward destination.
- *
- * `readPayee` returns either a variant name (`Staked`, `Stash`, `Controller`)
- * or, for the `Account` variant, a full 48-character address — which is the
- * useful answer but overflows a stat tile, so it is truncated here and the
- * whole thing carried in the hint.
- *
- * Only `Staked` compounds, and that is the distinction a user acts on, so it is
- * stated in words rather than left to be inferred from the variant name.
+ * Renders a reward destination. `readPayee` returns a variant name (`Staked`,
+ * `Stash`, `Controller`) or, for `Account`, a full address — truncated here to
+ * fit a stat tile. Only `Staked` compounds, so the hint says so in words.
  */
 function describePayee(destination: string | null | undefined): { value: string; hint: string } {
   if (destination == null) return { value: '—', hint: 'not known' };
@@ -1394,12 +1281,9 @@ function describePayee(destination: string | null | undefined): { value: string;
 }
 
 /**
- * What would make a nominator want to move.
- *
- * Note what is *not* here: a warning about the operator's nominator page being
- * full. Polymesh rewards every exposure page and pays them automatically, so
- * telling someone they "may be earning nothing" because an operator is popular
- * would push them off a perfectly good node for no reason.
+ * What would make a nominator want to move. Note there is deliberately no
+ * "nominator page is full" warning: Polymesh rewards every exposure page, so it
+ * would push someone off a perfectly good node.
  */
 function nominationWarnings(row: OperatorRow): string[] {
   const warnings: string[] = [];
@@ -1416,10 +1300,8 @@ function nominationWarnings(row: OperatorRow): string[] {
 }
 
 /**
- * CSV download.
- *
- * Built on click rather than up front: it is a few hundred kilobytes of string
- * for a long history, and most visitors never press it.
+ * CSV download, built on click — a long history is a few hundred kilobytes of
+ * string and most visitors never press it.
  */
 function ExportButton({ stash, csv }: { stash: string; csv: () => string }) {
   return (

@@ -1,29 +1,20 @@
 /**
  * Coverage notes that keep a truncated axis honest.
  *
- * Several network series barely move as a fraction of their own magnitude —
- * measured over eras 1664–1749, reward points vary by 0.8% of their maximum,
- * the validator set by 5.5%, the payout by 4.4%. Forcing those onto a
- * zero-based axis draws a flat line across the top of the plot and hides the
- * only thing the chart is for: an era where nodes went offline shows up as two
- * pixels of dip.
+ * Several network series barely move as a fraction of their magnitude — reward
+ * points vary by under 1% of their maximum — so a zero-based axis draws a flat
+ * line and hides the only thing the chart is for. Scaling to the data fixes
+ * that and introduces the opposite hazard, a small wobble looking like a
+ * crisis, so these state the real range in words.
  *
- * Scaling to the data fixes that, and introduces the opposite hazard — a
- * truncated axis makes a 0.8% wobble look like a crisis. The tick labels do say
- * so, but only to a reader who checks them. This states it in words, with the
- * real numbers, so the chart cannot overstate its own volatility.
- *
- * Bars are exempt and must stay zero-based: a bar encodes value as *area*, so
+ * Bars are exempt and must stay zero-based: a bar encodes value as area, so
  * cutting the axis rescales the comparison itself rather than just the view.
- * Lines encode position, which is why they can honestly start elsewhere.
  */
 
 /**
  * "Between X and Y over this range — the axis is scaled to that, not to zero."
- *
- * Returns null when there is nothing worth saying: no data, or a series that
- * never moves, where a note about the axis would be more confusing than the
- * flat line it describes.
+ * Null when there is nothing worth saying: no data, or a series that never
+ * moves, where the note would confuse more than the flat line it describes.
  */
 export function axisRangeNote(
   values: readonly (number | null | undefined)[],
@@ -40,30 +31,23 @@ export function axisRangeNote(
 
   if (!Number.isFinite(lo) || lo === hi) return null;
 
-  // Terse on purpose. This sits in a one-line coverage strip beside the frame's
-  // controls, and a long sentence there wraps the header and shifts the buttons
-  // down the card — the reader loses the control they were reaching for to gain
-  // a sentence they had already read.
+  // Terse on purpose: this sits in a one-line coverage strip beside the
+  // frame's controls, and a longer sentence wraps the header and shifts the
+  // buttons down the card.
   return `Axis spans ${format(lo)}–${format(hi)}, not zero.`;
 }
 
 /**
  * A y-axis ceiling that a handful of extreme points cannot own, plus the note
- * that has to accompany it.
+ * that must accompany it. The case it exists for is a series whose bootstrap
+ * era pays orders of magnitude more than everything since, which otherwise
+ * flattens the rest of the chart onto the floor.
  *
- * The case this exists for is the network's average return over the chain's
- * whole life. Its first week paid 12,564%, because 0.08% of supply was staked
- * across three validators — genuinely what happened, and utterly unlike the
- * 249 weeks since, every one of which sits between 15% and 90%. Plotted
- * honestly the axis runs to 15,000% and the last four years are a flat line on
- * the floor.
+ * Capping is only honest if the reader is told, so the note comes back with the
+ * cap and the caller must render both. Clipped points keep their real values in
+ * the table view; nothing is dropped.
  *
- * Capping is only honest if the reader is told, so this returns the note with
- * the cap and the caller must render both. Clipped points keep their real
- * values in the table view; nothing is dropped.
- *
- * Null when no cap is warranted, which is the normal case — a series without a
- * far outlier is left entirely alone.
+ * Null when no cap is warranted, which is the normal case.
  */
 export function outlierCap(
   values: readonly (number | null | undefined)[],
@@ -72,12 +56,10 @@ export function outlierCap(
     /** How many times the median a point may reach before it is an outlier. */
     tolerance = 4,
     /**
-     * Why the outliers are there, in a clause that follows "peaking at X".
-     *
-     * Caller-supplied because the reason differs by chart and getting it wrong
-     * is worse than saying nothing: this first hardcoded "in the chain's
-     * earliest weeks", which was right for the network chart and plainly wrong
-     * on an operator page, where the spike is that validator's own first era.
+     * Why the outliers are there, as a clause following "peaking at X".
+     * Caller-supplied because the reason differs by chart — the chain's first
+     * weeks on a network chart, a validator's own first era on an operator
+     * page — and a wrong reason is worse than none.
      */
     because = '',
   }: { tolerance?: number; because?: string } = {},
@@ -91,8 +73,8 @@ export function outlierCap(
 
   const limit = median * tolerance;
   const above = finite.filter((v) => v > limit);
-  // Only worth capping for a genuine few. If a fifth of the series is above the
-  // line, that is the shape of the data and cutting it would be a lie.
+  // Only worth capping for a genuine few: if a fifth of the series is above
+  // the line, that is the shape of the data.
   if (above.length === 0 || above.length > finite.length * 0.05) return null;
 
   // The cap sits just above the highest point that is *not* an outlier, so the
@@ -103,8 +85,7 @@ export function outlierCap(
 
   return {
     max,
-    // Kept to one clause for the same reason as `axisRangeNote`. The full
-    // explanation is `because`, which callers keep short too.
+    // One clause, for the same reason as `axisRangeNote`.
     note: `${above.length} above ${format(max)} clipped, peaking at ${format(peak)} ${because}.`,
   };
 }

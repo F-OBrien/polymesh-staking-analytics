@@ -1,26 +1,20 @@
 import { interiorGaps } from '@/lib/charts/geometry';
 
 /**
- * How much of its own history an operator was actually producing for.
+ * How much of its own history an operator was actually producing for — the
+ * charts show *when* it dropped out, this says *how often*.
  *
- * The charts show *when* an operator dropped out; nothing said *how often*. On
- * a permissioned chain that is the question a nominator is really asking. There
- * is no election to lose here — mainnet runs ~90 validators against 100 slots
- * with nobody waiting, so an operator that is not in the active set is one that
- * was chilled or whose node stopped, not one that was outbid. That makes the
- * absence rate a genuine reliability signal rather than a measure of
- * competition, which is why this is worth stating as a figure.
+ * On a permissioned chain the absence rate is a reliability signal rather than
+ * a measure of competition: mainnet runs fewer validators than it has slots,
+ * with nobody waiting, so an operator outside the active set was chilled or had
+ * its node stop, not outbid.
  *
- * **Measured over the operator's own record, not the selected range.** An
- * operator that joined three eras ago has not "missed" the preceding year, and
- * counting the window from the range's start would report 97% absence for every
- * new operator on the chart. The window therefore runs from the first era the
- * operator has data for to the last — the same interior-only rule the gap marks
- * are drawn from, so the tile and the plot can never disagree.
- *
- * The corollary is that the figure is bounded by the range on screen: at 90
- * eras it describes ninety eras. The caller is handed `fromEra`/`toEra` so it
- * can say which.
+ * Measured over the operator's own record, not the selected range: one that
+ * joined three eras ago has not "missed" the preceding year. The window runs
+ * from its first era with data to its last — the same interior-only rule the
+ * gap marks use, so the tile and the plot cannot disagree. It is still bounded
+ * by the range on screen, so `fromEra`/`toEra` come back for the caller to say
+ * which.
  */
 
 export interface AbsenceRun {
@@ -41,14 +35,10 @@ export interface Availability {
   /** Eras in the window it was absent from the active set. */
   missed: number;
   /**
-   * Eras it was in the set and earned nothing.
-   *
-   * Distinct from `missed` and easy to overlook: an elected validator whose
-   * node is down still appears in every column, with zero points. That leaves
-   * no gap in the line and no mark on the chart, so without this it is the one
-   * kind of outage the page cannot show. Counted separately rather than added
-   * to `missed`, because being elected and silent is a different failure from
-   * not being elected at all.
+   * Eras it was in the set and earned nothing — an elected validator whose node
+   * is down still appears in every column with zero points, leaving no gap in
+   * the line and no mark on the chart. Counted separately from `missed`, since
+   * elected and silent is a different failure from not being elected.
    */
   blank: number;
   /** `inSet / window`, in [0,1]. */
@@ -75,9 +65,8 @@ export function summariseAvailability({ eras, points }: AvailabilityInput): Avai
   let last = points.length - 1;
   while (last >= 0 && !defined(last)) last -= 1;
 
-  // No record at all in this range. Null rather than a zeroed summary: "0
-  // eras missed of 0" reads as a clean sheet, which is the opposite of "we
-  // have nothing to say about this operator".
+  // No record at all in this range. Null rather than a zeroed summary — "0
+  // eras missed of 0" reads as a clean sheet.
   if (first > last) return null;
 
   const fromEra = eras[first];

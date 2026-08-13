@@ -4,15 +4,11 @@ import { pointsPerBlock } from './production';
 
 /**
  * What a nominator actually earned from each operator, and what explains it.
+ * Where `production.ts` covers only block authorship, this adds the other two
+ * things that move a nominator's return — commission, and how many ways the
+ * (points-fixed, stake-independent) reward gets split.
  *
- * `production.ts` answers "who is filling their authorship slots?", which is
- * the largest *single* thing an operator controls but not the whole of what a
- * nominator receives. Two operators producing identically pay differently if
- * one charges more commission, and differently again if one carries more stake
- * — the reward is fixed by points, so extra stake does not grow the pot, it
- * only splits it more ways.
- *
- * Written out, the per-unit return decomposes exactly:
+ * The per-unit return decomposes exactly:
  *
  *     netAPR      points        ⎛              ⎞   averageStake
  *     ──────  =  ─────────── × ⎜ 1 − commission ⎟ × ────────────
@@ -21,48 +17,19 @@ import { pointsPerBlock } from './production';
  *                production        commission          stake
  *
  * where `refAPR` is the gross return per unit staked the field earned over the
- * same eras. Every input is already in the chunk files; nothing here needs new
- * ingestion.
+ * same eras. Every input is already in the chunk files.
  *
- * **Eras the operator was not elected are excluded, not counted as zero.** This
- * was the other way round for one revision, on the reasoning that a nominator's
- * stake earns nothing in an era its operator sits out. That is wrong on the
- * mechanics: the election distributes a nominator's stake across whichever of
- * *their* nominations were elected, so an operator dropping out moves that
- * stake to the others rather than idling it. Charging the operator for the era
- * counts a loss the nominator did not take. It also compounds — the longer an
- * operator is out, the more eras of someone else's earnings get booked against
- * it, which is how three Elseware nodes came to read 13.6% against a 19.8%
- * field while producing blocks at exactly the expected rate.
+ * Eras the operator was not elected are excluded, not counted as zero: the
+ * election moves a nominator's stake to their other nominations rather than
+ * idling it, so charging the operator books a loss the nominator never took.
+ * Elected and scoring nothing stays in — that zero is theirs. `eras` reports
+ * how often an operator was elected, so a caller can show it separately.
  *
- * Elected and scoring nothing is the opposite case and stays in: the stake was
- * committed, the era was theirs, and the zero is theirs. `eras` reports how
- * many eras an operator was actually elected for, so a caller can show how
- * often they are in the set without it distorting the return.
- *
- * **The factors are not equally worth knowing, and the difference is
- * measurable.** Splitting eras 1600–1750 in half and correlating each
- * operator's first-half factor against its second-half value:
- *
- * | factor     | spread across field | persistence |
- * | ---------- | ------------------- | ----------- |
- * | production | ±1.37%              | r = 0.618   |
- * | commission | ±0.82%              | r = 0.997   |
- * | stake      | ±1.83%              | r = 0.288   |
- *
- * So the *largest* contributor to the spread in realised returns is also the
- * one that barely survives contact with the future. Worse than uninformative:
- * regressing each operator's early stake advantage against how that advantage
- * then changed gives **r = −0.973**, near-total mean reversion. An operator is
- * under-staked only until the election rebalances or nominators notice, and a
- * nominator who arrives to collect the advantage is themselves part of what
- * erases it.
- *
- * A chart that ranked operators on realised return alone would therefore sort
- * mostly on the least durable term — the same failure as the mean-return column
- * that once reported a Huobi node at 48.59%, reached by a different route. Both
- * the total and the split are returned so a caller can show which is which, and
- * `durable` exists so a ranking can be built on the factors that persist.
+ * The factors differ sharply in how well they persist (measured over eras
+ * 1600–1750, first half against second): commission r = 0.997, production
+ * r = 0.618, stake r = 0.288 with near-total mean reversion. So a ranking on
+ * realised return alone sorts mostly on the least durable term; `durable`
+ * exists so a ranking can be built on the factors that hold.
  */
 
 /** One operator's realised return over a range, with its causes. */
@@ -71,12 +38,9 @@ export interface ReturnRecord {
   /** Eras in which this operator was in the active set and fully recorded. */
   eras: number;
   /**
-   * The field's gross return per unit staked over *this operator's* eras.
-   *
-   * Per operator rather than one figure for the range, because an operator
-   * elected for 58 of 87 eras must be compared against what the field earned in
-   * those 58. A single reference would leave the decomposition failing to add
-   * up by the amount the network drifted in the eras they missed.
+   * The field's gross return per unit staked over *this operator's* eras. Per
+   * operator, not one figure for the range: otherwise the decomposition fails
+   * to add up by however much the network drifted in the eras they missed.
    */
   referenceApr: number;
   /** Realised return per unit staked, after commission, annualised. */
@@ -89,16 +53,13 @@ export interface ReturnRecord {
   keep: number;
   /**
    * Field-average stake divided by this operator's, so above 1 means each unit
-   * of stake here captured more of the reward than the field average.
+   * of stake captured more of the reward than the field average.
    *
-   * Carries the interaction between the factors as well as the stake effect
-   * itself, because it is computed as the residual that makes the identity hold
-   * exactly over a multi-era range — where a sum of products is not the product
-   * of sums. Measured over eras 1664–1750 the interaction is at most 0.31%
-   * relative, and it is mostly stake reacting to performance, so the stake term
-   * is where it belongs. The alternative — pure factors whose product misses
-   * the realised return — would put a visible gap between the waterfall and the
-   * number it is supposed to explain.
+   * Computed as the residual that makes the identity hold exactly over a
+   * multi-era range, so it also carries the inter-factor interaction (measured
+   * at most 0.31% relative, and mostly stake reacting to performance). Pure
+   * factors would instead leave a gap between the waterfall and the return it
+   * is meant to explain.
    */
   stakeAdvantage: number;
   /**
@@ -110,10 +71,9 @@ export interface ReturnRecord {
   contribution: ReturnContribution;
   /**
    * One standard error on `netApr`, in APR, from the authorship lottery.
-   *
-   * Commission and stake are known exactly, so all of the uncertainty enters
-   * through points and carries through multiplicatively: the relative error on
-   * the return is the relative error on production.
+   * Commission and stake are known exactly, so all uncertainty enters through
+   * points: the relative error on the return is the relative error on
+   * production.
    */
   standardError: number;
   /** Distance from the field median, in standard errors. */
@@ -121,17 +81,15 @@ export interface ReturnRecord {
 }
 
 /**
- * Each factor's effect on the return, in APR rather than as a ratio.
- *
- * A logarithmic-mean (LMDI) attribution, which is the standard way to split a
- * *multiplicative* identity into terms that *add*. The naive alternative —
- * `refApr × (factor − 1)` for each — leaves a residual that grows with the
- * factors and would have to be either hidden or drawn as an extra mystery bar.
- * These sum to `netApr − referenceApr` exactly.
+ * Each factor's effect on the return, in APR rather than as a ratio. A
+ * logarithmic-mean (LMDI) attribution, the standard way to split a
+ * multiplicative identity into terms that add; these sum to
+ * `netApr − referenceApr` exactly, where `refApr × (factor − 1)` would leave a
+ * residual needing its own mystery bar.
  */
 export interface ReturnContribution {
   production: number;
-  /** Always negative: commission is a deduction, and naming it as one is the point. */
+  /** Always negative — commission is a deduction. */
   commission: number;
   stake: number;
 }
@@ -141,11 +99,9 @@ export interface ReturnsSummary {
   /** Eras the calculation actually covered. */
   eras: number;
   /**
-   * Gross return per unit staked across the field, over the whole range.
-   *
-   * For stating what the field earned. Each record carries its own
-   * `referenceApr` over its own eras, which is what its decomposition adds up
-   * against.
+   * Gross return per unit staked across the field, over the whole range — for
+   * stating what the field earned. A record's decomposition adds up against its
+   * own `referenceApr`, not this.
    */
   referenceApr: number;
   /** Median realised net return. The deviation chart's baseline. */
@@ -166,24 +122,17 @@ export interface ReturnsInput {
   >;
   erasPerYear: number;
   /**
-   * Drop operators present for less than this fraction of the range — up to
-   * `minEras`, which is the real requirement.
-   *
-   * An operator that joined for the last three eras of a ninety-era window has
-   * an enormous standard error and would dominate both ends of a sorted chart.
+   * Drop operators present for less than this fraction of the range, capped at
+   * `minEras`. An operator elected for three eras of ninety has an enormous
+   * standard error and would dominate both ends of a sorted chart.
    */
   minCoverage?: number;
   /**
-   * The absolute floor, and the one that binds on a long range.
-   *
-   * A fraction alone is the wrong shape of threshold. Half of ninety eras is a
-   * reasonable ask; half of 1,750 is 875, and over the chain's whole history
-   * that silently dropped **49 of the 86 operators currently running** while
-   * keeping long-dead ones that happened to be there at the start — the exact
-   * inverse of what a reader picking an operator needs. What actually matters
-   * is having enough eras to measure, and that is an absolute count: the
-   * authorship lottery's error falls as 1/√blocks and does not care how long
-   * the chain has been going.
+   * The absolute floor, and the one that binds on a long range. A fraction
+   * alone is the wrong shape: half of 1,750 eras drops most operators currently
+   * running in favour of long-dead ones that were there at the start. What
+   * matters is enough eras to measure, and the lottery's error falls as
+   * 1/√blocks regardless of how long the chain has run.
    */
   minEras?: number;
   /** Overrides the GCD-derived award per block. See `pointsPerBlock`. */
@@ -224,13 +173,9 @@ export function summariseReturns({
       ),
     );
 
-  /**
-   * Eras with a usable denominator on every term.
-   *
-   * `totalStaked` is the sum of the active set's exposure — verified equal to
-   * it, to the last decimal, across every chunk from era 512 to 1750 — so the
-   * reference needs no per-operator pass.
-   */
+  // Eras with a usable denominator on every term. `totalStaked` equals the
+  // active set's exposure (verified across every chunk from era 512 to 1750),
+  // so the reference needs no per-operator pass.
   const usable: number[] = [];
   for (let i = 0; i < eras.length; i += 1) {
     const reward = network.validatorReward[i];
@@ -261,8 +206,8 @@ export function summariseReturns({
     let keepSum = 0;
     let refPerUnit = 0;
     let count = 0;
-    // Accumulated in *blocks*, era by era: the number of validators sharing the
-    // slots changes as the set changes.
+    // In blocks, era by era: the number of validators sharing the slots
+    // changes as the set changes.
     let variance = 0;
 
     for (const i of usable) {
@@ -270,26 +215,14 @@ export function summariseReturns({
       const stake = operator.totalStake[i];
       const commission = operator.commission[i];
       // Null points means "not in the active set" — the ingest writes null, not
-      // zero. A missing commission is withheld rather than read as zero, which
+      // zero. Missing commission is withheld rather than read as zero, which
       // would overstate what the nominator received.
       if (scored == null || stake == null || stake <= 0 || commission == null) continue;
 
-      /**
-       * Eras with no nominator stake are not eras a nominator earned in.
-       *
-       * A newly elected operator is exposed for its own bond alone until the
-       * next election allocates nominations to it, and a full era's blocks
-       * divided by a bond is an enormous per-unit return: all three Huobi nodes
-       * entered at era 1660 with 50,000–62,360 POLYX, zero nominators, and
-       * scored 2,662% annualised. The following era their stake was 6.3M and
-       * they returned 20.8%, where they have stayed.
-       *
-       * Averaged in, that single era added 29 points to a 91-era mean and put
-       * them at the top of a chart titled "what a nominator earned" — for a
-       * return no nominator could have received, since none was there. The same
-       * spike, through a mean, is what once reported a Huobi node at 48.59% in
-       * the operator table. It happens in 159 of 103,541 operator-eras.
-       */
+      // Eras with no nominator stake are not eras a nominator earned in. A
+      // newly elected operator is exposed for its own bond alone until the next
+      // election, and a full era's blocks over a bare bond is an enormous
+      // per-unit return (measured: 2,662% annualised, 20.8% the era after).
       const own = operator.ownStake[i];
       if (own != null && own >= stake) continue;
 
@@ -305,8 +238,8 @@ export function summariseReturns({
       expectedPoints += eraExpected;
       grossPerUnit += earned / stake;
       netPerUnit += (earned * (1 - commission)) / stake;
-      // Accumulated over the same eras as the operator's own return, so the two
-      // are comparable for an operator that was not elected throughout.
+      // Over the same eras as the operator's own return, so the two stay
+      // comparable for an operator not elected throughout.
       refPerUnit += reward / staked;
       keepSum += 1 - commission;
       count += 1;
@@ -331,15 +264,14 @@ export function summariseReturns({
       production,
       keep,
       // The residual, so the factors reproduce the realised return exactly.
-      // See the note on `stakeAdvantage`.
       stakeAdvantage:
         recordReference > 0 && production > 0 && keep > 0
           ? netApr / (recordReference * production * keep)
           : 1,
       durable: production * keep,
       contribution: { production: 0, commission: 0, stake: 0 },
-      // Blocks are the unit the variance is defined in; dividing by expected
-      // blocks turns it into a relative error, which then scales the return.
+      // Variance is in blocks; dividing by expected blocks makes it a relative
+      // error, which then scales the return.
       standardError: (Math.sqrt(variance) / (expectedPoints / perBlock)) * netApr,
       z: 0,
     });
@@ -389,11 +321,8 @@ function averageReference(
 
 /**
  * Splits `netApr − referenceApr` across the three factors so the parts add up.
- *
- * The logarithmic mean `L(a,b) = (a−b) / (ln a − ln b)` is what makes it exact:
- * each factor's share is `L × ln(factor)`, and those sum to `L × ln(ratio)`,
- * which is `netApr − referenceApr` by the definition of `L`. Degenerate when
- * the two are equal, where `L` is just the value itself.
+ * The logarithmic mean `L(a,b) = (a−b) / (ln a − ln b)` makes it exact: each
+ * share is `L × ln(factor)`, and those sum to `L × ln(ratio)`.
  */
 function attribute(record: ReturnRecord, referenceApr: number): ReturnContribution {
   const { netApr, production, keep, stakeAdvantage } = record;
@@ -401,25 +330,17 @@ function attribute(record: ReturnRecord, referenceApr: number): ReturnContributi
     return { production: 0, commission: 0, stake: 0 };
   }
 
-  /**
-   * The logarithmic mean, which is what makes the split exact — and which is
-   * `0/0` when an operator matches the field.
-   *
-   * Testing `netApr === referenceApr` is not enough of a guard: an operator can
-   * land a single float ulp away, where the difference is non-zero but the
-   * difference of the logs rounds to zero. That gives `L = Infinity`, and
-   * `Infinity × ln(1)` is `NaN` — so the operator most exactly average is the
-   * one whose bars disappear. The limit of `L` as the two converge is the value
-   * itself, so that is what the near case returns.
-   */
+  // `L` is 0/0 when an operator matches the field, and testing equality is not
+  // enough of a guard: a difference of one float ulp still takes the log
+  // difference to zero, giving `Infinity × ln(1)` = NaN. The limit of `L` as
+  // the two converge is the value itself.
   const denominator = Math.log(netApr) - Math.log(referenceApr);
   const L = Math.abs(denominator) < 1e-12 ? netApr : (netApr - referenceApr) / denominator;
 
   const share = (factor: number) => {
     const value = L * Math.log(factor);
-    // A factor of zero — an elected operator that scored nothing all range —
-    // takes the log to −Infinity. Report no attribution rather than a bar of
-    // infinite length.
+    // A factor of zero (elected, scored nothing all range) takes the log to
+    // −Infinity. No attribution beats a bar of infinite length.
     return Number.isFinite(value) ? value : 0;
   };
 

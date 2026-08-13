@@ -5,25 +5,20 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Skeleton } from '@/components/states';
 
 /**
- * Defers chart rendering until it is needed.
+ * Defers chart rendering, by two mechanisms solving two problems:
  *
- * Two separate mechanisms, solving two separate problems:
+ *  1. `next/dynamic` splits the chart kit into its own chunk, so d3 and Radix
+ *     Tabs load after first paint rather than blocking it. This is what keeps
+ *     the critical path under budget.
+ *  2. An IntersectionObserver gates the mount, so a page carrying eight charts
+ *     does not pay layout and derivation for ones never scrolled to.
  *
- *  1. **`next/dynamic` splits the chart kit into its own chunk.** d3-scale +
- *     d3-shape (14.4 KB) and Radix Tabs (9.0 KB) then load *after* first paint
- *     rather than blocking it. This is what keeps the critical path under
- *     budget — measured at 218 KB when the kit was statically imported, against
- *     a 200 KB budget and a ~182 KB framework floor.
- *  2. **An IntersectionObserver gates the mount.** `/network` carries eight
- *     charts; rendering all of them on load costs layout and derivation work
- *     for charts the reader may never scroll to.
+ * Both matter: splitting alone still mounts everything at once, and gating
+ * alone still puts d3 on the critical path.
  *
- * Both matter. Splitting alone still mounts everything at once; gating alone
- * still puts d3 on the critical path.
- *
- * `ssr: false` is correct rather than lazy: charts measure their container
- * before drawing (see `useMeasuredWidth`), so there is nothing meaningful to
- * prerender — the server would emit an empty box either way.
+ * `ssr: false` is correct rather than lazy — charts measure their container
+ * before drawing (see `useMeasuredWidth`), so the server would emit an empty
+ * box either way.
  */
 
 const EraSeriesChartImpl = dynamic(
@@ -70,11 +65,8 @@ export type { TimeBarChartProps } from './time-bar-chart';
 export type { DeviationChartProps, DeviationItem } from './deviation-chart';
 
 /**
- * Wraps a chart so it mounts only once scrolled near.
- *
- * The reserved height is the chart's own, so nothing shifts when it arrives —
- * the CLS budget is zero, and a chart appearing 400px down the page is exactly
- * where layout shift usually comes from.
+ * Wraps a chart so it mounts only once scrolled near. The reserved height is
+ * the chart's own, so nothing shifts when it arrives — the CLS budget is zero.
  */
 export function LazyChart({
   height,

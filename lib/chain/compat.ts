@@ -1,33 +1,25 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- see the note below. */
 
 /**
- * Chain compatibility layer — the *only* place in this codebase permitted to
- * reach into loosely-typed Polkadot storage.
- *
- * Polymesh's staking storage has changed shape three times, and the generated
- * type augmentations only describe the current runtime. Reading historical eras
- * therefore means touching entries the types say do not exist. Rather than
- * scatter ~30 `@ts-ignore`s across the app — which is what the previous version
- * did, several of them hiding real drift — every such access is quarantined
- * here, behind functions with honest signatures.
+ * Chain compatibility layer — the only place permitted to reach into
+ * loosely-typed Polkadot storage. The generated type augmentations describe
+ * only the current runtime, so reading historical eras means touching entries
+ * the types say do not exist; every such access is quarantined here behind
+ * functions with honest signatures.
  *
  * What changed, and when:
  *
- *  - **v6 → v7**: `historyDepth` moved from a storage item to a constant.
- *  - **v7 → v8**: exposures moved from a single clipped entry per operator
- *    (`erasStakersClipped`) to an overview plus paged nominators
- *    (`erasStakersOverview` + `erasStakersPaged`). Eras recorded before the
- *    upgrade only have the clipped form, so this varies *per era*, not per
- *    chain — which is why `readEraExposures` probes rather than branching on a
- *    single chain-wide flag.
- *  - **v7 → v8**: `fixedYearlyReward` and `maxVariableInflationTotalIssuance`
- *    moved from the `staking` pallet to `validators`.
- *  - **v8**: nomination events moved to the `validators` pallet.
+ *  - v6 → v7: `historyDepth` moved from a storage item to a constant.
+ *  - v7 → v8: exposures moved from `erasStakersClipped` to
+ *    `erasStakersOverview` + `erasStakersPaged`. Pre-upgrade eras keep the
+ *    clipped form, so this varies per era, not per chain — hence
+ *    `readEraExposures` probes rather than branching on a chain-wide flag.
+ *  - v7 → v8: `fixedYearlyReward` and `maxVariableInflationTotalIssuance` moved
+ *    from `staking` to `validators`.
+ *  - v8: nomination events moved to the `validators` pallet.
  *
- * `ApiLike` is deliberately `any`-shaped: importing `@polkadot/api` types here
- * would pull the package into the module graph, and the whole performance
- * argument depends on it staying out (enforced by the lint rule in
- * eslint.config.mjs). Callers are the ingestion scripts, which run in Node.
+ * `ApiLike` is `any`-shaped on purpose: importing `@polkadot/api` types would
+ * pull the package into the module graph, which a lint rule forbids.
  */
 
 import type { ExposureShape } from '@/lib/schemas/data';
@@ -56,10 +48,8 @@ const toBigInt = (value: unknown): bigint => BigInt(value?.toString() ?? '0');
 // ---------------------------------------------------------------------------
 
 /**
- * Number of past eras the chain retains in state.
- *
- * A constant since v7; a storage item before that. Both are tried because a
- * backfill reads historical blocks where only the older form exists.
+ * Number of past eras the chain retains in state. A constant since v7, a
+ * storage item before; a backfill reads blocks where only the older form exists.
  */
 export async function readHistoryDepth(api: ApiLike): Promise<number> {
   const asConst = api.consts.staking?.historyDepth;
@@ -163,12 +153,9 @@ export async function readEraPreferences(
 }
 
 /**
- * Operator exposures for an era, in whichever shape that era was recorded.
- *
- * Tries the v8 paged form first and falls back to the v6/v7 clipped form. The
- * probe is per era rather than per chain because a v8 node still holds
- * pre-upgrade eras in the old shape — branching on the runtime version alone
- * would silently return nothing for those eras.
+ * Operator exposures for an era, in whichever shape that era was recorded. The
+ * probe is per era, not per chain: a v8 node still holds pre-upgrade eras in
+ * the clipped shape, and branching on runtime version returns nothing for them.
  */
 export async function readEraExposures(api: ApiLike, era: number): Promise<EraExposures> {
   if ('erasStakersPaged' in api.query.staking) {
@@ -191,15 +178,12 @@ async function readClippedExposures(api: ApiLike, era: number): Promise<EraExpos
 }
 
 /**
- * v8: an overview holding the totals, plus nominators split across pages.
+ * v8: an overview holding the totals, plus nominators split across pages. Both
+ * read with a partial (era-only) key, so this is two queries per era rather
+ * than one per operator.
  *
- * Both are read with a partial (era-only) key, so this stays at two queries per
- * era rather than one per operator — the difference between a bearable backfill
- * and an abusive one.
- *
- * Only nominator *counts* are kept. Full nominator lists are an order of
- * magnitude more data and are needed on exactly one screen, so they are fetched
- * on demand rather than baked into every chunk.
+ * Only nominator counts are kept — full lists are an order of magnitude more
+ * data, needed on one screen, so they are fetched on demand.
  */
 async function readPagedExposures(api: ApiLike, era: number): Promise<EraExposure[]> {
   const [overviews, pages] = await Promise.all([
@@ -244,18 +228,12 @@ export interface EraSlash {
 }
 
 /**
- * Operators slashed for offences committed in `era`.
+ * Operators slashed for offences committed in `era`. The double map is prefixed
+ * by era, so one `entries()` call covers it however many operators there were.
  *
- * One `entries()` call per era rather than a lookup per (era, operator): the
- * double map is prefixed by era, so this is a single range read regardless of
- * how many operators the era had.
- *
- * **Pruned to history depth.** `validatorSlashInEra` is cleared along with the
- * rest of an era's staking state, so an empty result for an old era means "we
- * can no longer tell", not "nothing happened". Callers must carry that
- * distinction through to the UI — `SlashesSchema.prunedBefore` exists for it.
- *
- * The map is absent on old runtimes, so a missing entry is not an error.
+ * Pruned to history depth: an empty result for an old era means "we can no
+ * longer tell", not "nothing happened", and callers must carry that through to
+ * the UI (see `SlashesSchema.prunedBefore`). The map is absent on old runtimes.
  */
 export async function readEraSlashes(api: ApiLike, era: number): Promise<EraSlash[]> {
   const store = api.query.staking?.validatorSlashInEra;
@@ -266,7 +244,7 @@ export async function readEraSlashes(api: ApiLike, era: number): Promise<EraSlas
 
   for (const [key, value] of entries) {
     if (!value?.isSome) continue;
-    // (Perbill, Balance) — the fraction of exposure, and the operator's own loss.
+    // (Perbill, Balance) — fraction of exposure, and the operator's own loss.
     const [perbill, amount] = value.unwrap();
     slashes.push({
       address: String(key.args[1]),
@@ -279,13 +257,9 @@ export async function readEraSlashes(api: ApiLike, era: number): Promise<EraSlas
 }
 
 /**
- * Nominator losses for offences committed in `era`, aggregated.
- *
- * Returned as a count and a total rather than a list because the storage is
- * keyed by (era, nominator) with **no back-reference to the operator
- * responsible**. Per-nominator rows would therefore be unattributable, and
- * there can be thousands of them. The aggregate is the most that can be said
- * honestly, and it is small.
+ * Nominator losses for offences committed in `era`, aggregated. A count and a
+ * total rather than a list because the storage is keyed by (era, nominator)
+ * with no back-reference to the operator, so rows would be unattributable.
  */
 export async function readEraNominatorSlashes(
   api: ApiLike,
@@ -308,18 +282,11 @@ export async function readEraNominatorSlashes(
 }
 
 /**
- * Who slashing currently applies to.
- *
- * **Polymesh-specific, and it changes what the risk actually is.** Substrate
- * slashes nominators alongside the validator they backed; Polymesh gates that
- * behind a runtime switch (`validators.slashingAllowedFor`), and mainnet is set
- * to `Validator` — only the operator's own stake is at risk. The docs say so
- * too: "Nominator tokens are not currently subject to slashing, but that could
- * change in the future."
- *
- * Read rather than hardcoded precisely because of that last clause. It is
- * governance-changeable, and a page that asserts nominators are safe would
- * become wrong the day it flips.
+ * Who slashing currently applies to. Where Substrate slashes nominators
+ * alongside the validator they backed, Polymesh gates that behind
+ * `validators.slashingAllowedFor`; mainnet is `Validator`, so only the
+ * operator's own stake is at risk. Read rather than hardcoded — it is
+ * governance-changeable.
  */
 export type SlashingScope = 'None' | 'Validator' | 'ValidatorAndNominator';
 
@@ -384,18 +351,12 @@ export async function readSlotInfo(api: ApiLike): Promise<SlotInfo> {
 
 export type ElectionPhase = 'Off' | 'Signed' | 'Unsigned' | 'Emergency' | 'Unknown';
 
-/**
- * Current election phase. Absent on runtimes without
- * `electionProviderMultiPhase`, in which case 'Off' is the honest answer —
- * there is no multi-phase election to be in.
- */
+/** Current election phase, or 'Unknown' without `electionProviderMultiPhase`. */
 export async function readElectionPhase(api: ApiLike): Promise<ElectionPhase> {
   const pallet = api.query.electionProviderMultiPhase;
-  // `Unknown`, not `Off`. Reporting "Off" for a pallet that is not installed
-  // invents a status for machinery that does not exist — the same trap as
-  // reading an absent storage map as "no entries". Polymesh mainnet *does*
-  // carry `electionProviderMultiPhase` (verified, `npm run probe:session`), so
-  // in practice this branch means a runtime we do not know.
+  // `Unknown`, not `Off`: reporting "Off" for a pallet that is not installed
+  // invents a status for machinery that does not exist. Mainnet does carry the
+  // pallet, so this branch means a runtime we do not know.
   if (pallet?.currentPhase == null) return 'Unknown';
 
   const phase = await pallet.currentPhase();
@@ -434,10 +395,8 @@ export async function readValidatorSet(api: ApiLike): Promise<ValidatorSet> {
 }
 
 /**
- * Maximum nominators rewarded per exposure page.
- *
- * Nominators beyond this earn nothing, so it is the difference between staking
- * and only appearing to stake. Absent on pre-v8 runtimes.
+ * Nominators per exposure page. A paging size, not a reward cap — Polymesh pays
+ * every page (see `LatestOperatorSchema.pageCount`). Absent on pre-v8 runtimes.
  */
 export function readMaxExposurePageSize(api: ApiLike): number | null {
   const value = api.consts.staking?.maxExposurePageSize;
@@ -449,21 +408,15 @@ export function readMaxExposurePageSize(api: ApiLike): number | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves a stash account to its Polymesh identity (DID).
+ * Resolves a stash account to its Polymesh identity (DID) — the join that makes
+ * the official operator-name registry (keyed by DID) usable against staking
+ * storage (keyed by stash).
  *
- * This is the join that makes the official operator-name registry usable: that
- * file is keyed by DID, while everything in staking is keyed by stash address.
- *
- * The storage item was renamed between runtimes (`keyToIdentityIds` ->
- * `keyRecords`), and the newer one wraps the DID in an enum with a variant per
- * key type. An unresolvable account returns null rather than throwing, because
- * a validator with no registered identity is normal and must not fail a run.
- *
- * Every candidate is checked against `isDid` before being returned. That guard
- * is not defensive padding — it caught a real bug: `SecondaryKey` was assumed
- * to hold a `(did, permissions)` tuple, so indexing `[0]` sliced characters out
- * of the DID string and produced `"226"`. A malformed value reaching the
- * registry would have failed the whole ingest over a display name.
+ * The storage item was renamed `keyToIdentityIds` → `keyRecords`, and the newer
+ * one wraps the DID in an enum with a variant per key type. Candidates are
+ * validated against `isDid` because the variants' shapes differ, and an
+ * unresolvable account returns null rather than throwing — a validator with no
+ * registered identity is normal and must not fail a run.
  */
 const DID_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 
@@ -472,10 +425,8 @@ function isDid(value: unknown): value is string {
 }
 
 /**
- * Coerces a codec to a DID string.
- *
- * Accepts either the value itself or a tuple whose first element is the DID,
- * since variants have differed on that point across runtimes.
+ * Coerces a codec to a DID string — either the value itself or a tuple whose
+ * first element is the DID, since variants differ across runtimes.
  */
 function toDid(candidate: unknown): string | null {
   if (candidate == null) return null;
@@ -483,8 +434,8 @@ function toDid(candidate: unknown): string | null {
   const direct = String(candidate);
   if (isDid(direct)) return direct;
 
-  // polkadot-js tuples extend Array, so this distinguishes a real tuple from a
-  // plain H256 (a Uint8Array subclass, for which Array.isArray is false).
+  // polkadot-js tuples extend Array; a plain H256 is a Uint8Array subclass, so
+  // this distinguishes the two.
   if (Array.isArray(candidate) && candidate.length > 0) {
     const first = String(candidate[0]);
     if (isDid(first)) return first;

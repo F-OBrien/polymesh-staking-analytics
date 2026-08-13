@@ -3,31 +3,21 @@
 import { tickCount, type PlotBox, type TimeScale, type ValueScale } from '@/lib/charts/geometry';
 
 /**
- * Axes and grid.
- *
- * Recessive by design: hairline grid, muted labels, no chart-area border, no
- * axis line on the value side. Chrome should be legible when looked for and
- * invisible otherwise — the data is the thing with contrast.
- *
- * All chrome is `aria-hidden`: the accessible representation of a chart is its
- * table, and announcing every gridline would be noise.
+ * Axes and grid, recessive by design: hairline grid, muted labels, no
+ * chart-area border, no axis line on the value side. All of it is `aria-hidden`
+ * — a chart's accessible representation is its table, and announcing every
+ * gridline would be noise.
  */
 
 /**
- * The ticks to draw for a value axis.
+ * The ticks to draw for a value axis. `scaleLinear.ticks(n)` honours `n` and is
+ * used as-is; `scaleLog.ticks(n)` does not, returning every power of ten and,
+ * on a narrow domain, every multiple of each — so a log axis is thinned to
+ * roughly the count a linear one would use.
  *
- * `scaleLinear.ticks(n)` already honours `n`, so its output is used as-is.
- * `scaleLog.ticks(n)` does not — it returns every power of ten in the domain
- * and, where the domain is narrow, every multiple of each. Twenty gridlines is
- * not a grid, so a log axis is thinned to roughly the count a linear one would
- * have used.
- *
- * **Thinned evenly, with nothing appended.** A first attempt force-kept the
- * top tick so the highest value was always labelled, which on a *linear* axis
- * produced 10 / 30 / 50 / 60 — three even gaps and then a half one, which
- * reads as a mistake in the data rather than in the axis. Taking every Nth and
- * stopping is uniform in whatever space the scale works in: linear ticks stay
- * evenly spaced, and log ticks stay one decade apart.
+ * Thinned evenly, with nothing appended. Force-keeping the top tick so the
+ * highest value is always labelled produces uneven final gaps, which read as a
+ * mistake in the data rather than in the axis.
  */
 function valueTicks(scale: ValueScale, count: number): number[] {
   // `base()` exists only on a log scale, and is the one structural difference
@@ -38,13 +28,9 @@ function valueTicks(scale: ValueScale, count: number): number[] {
   if (!(lo > 0) || !(hi > lo)) return scale.ticks(count);
 
   /**
-   * The 1-2-5 ladder, which is what a log axis is expected to be labelled with.
-   *
-   * `scaleLog.ticks()` returns every integer multiple within a decade, and
-   * thinning that evenly produced 20% / 70% / 300% / 800% / 4,000% — each value
-   * correct and the set as a whole unreadable, because nothing about it says
-   * "each step is a power of ten". Generating the ladder and thinning *it*
-   * keeps whatever survives recognisable.
+   * The 1-2-5 ladder a log axis is expected to be labelled with. Thinning
+   * d3's own ticks instead gives sets like 20% / 70% / 300% / 800% — each value
+   * correct, and nothing about the set saying "each step is a power of ten".
    */
   const ladder: number[] = [];
   const first = Math.floor(Math.log10(lo));
@@ -56,7 +42,7 @@ function valueTicks(scale: ValueScale, count: number): number[] {
     }
   }
 
-  // Too few rungs in range to be a ladder — a domain inside one decade, say.
+  // Too few rungs in range to be a ladder (a domain inside one decade, say);
   // d3's own set is denser and better than three labels.
   if (ladder.length < 3) return scale.ticks(count);
   if (ladder.length <= count) return ladder;
@@ -79,7 +65,7 @@ export function Grid({ box, yScale }: { box: PlotBox; yScale: ValueScale }) {
           y2={yScale(tick)}
           stroke="var(--gridline)"
           strokeWidth={1}
-          // Horizontal only. Vertical gridlines on a time axis add clutter
+          // Horizontal only: vertical gridlines on a time axis add clutter
           // without helping anyone read a value off the chart.
           shapeRendering="crispEdges"
         />
@@ -139,11 +125,8 @@ export function YAxis({
 }
 
 /**
- * The x axis: dates, not era indices.
- *
- * The previous app labelled every axis with a raw era number. An era is a day,
- * so era 1403 *is* a date — but the reader had to know the mapping. Nobody
- * thinks in era indices; the index stays in the tooltip and the table.
+ * The x axis: dates, not era indices. An era is a day, so era 1403 *is* a date,
+ * but nobody thinks in era indices — the index stays in the tooltip and table.
  */
 export function XAxis({ box, scale }: { box: PlotBox; scale: TimeScale }) {
   const ticks = scale.ticks(tickCount(box.innerWidth, 90));
@@ -178,10 +161,8 @@ export function XAxis({ box, scale }: { box: PlotBox; scale: TimeScale }) {
 
 /**
  * A dashed reference line, e.g. the network average or an ideal target.
- *
- * Direct-labelled at the right edge rather than relegated to the legend: a
- * reference line is the thing every other series is read against, so its
- * identity should not require a lookup.
+ * Direct-labelled at the right edge rather than left to the legend — it is what
+ * every other series is read against, so its identity should need no lookup.
  */
 export function ReferenceLine({
   box,

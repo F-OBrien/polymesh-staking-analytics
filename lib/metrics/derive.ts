@@ -1,13 +1,10 @@
 import type { Chunk, NetworkSeries, OperatorSeries } from '@/lib/schemas/data';
 
 /**
- * Network columns as a *stitched* range supplies them.
- *
- * A stored chunk always has a value for every era it lists, so the schema is
- * non-nullable. A stitched range can span an era no chunk covers, which must
- * carry null rather than be dropped — see `StitchedSeries.eras`. Every
- * function here already treats a missing value as a gap; this only makes the
- * signature admit what the caller actually holds.
+ * Network columns as a stitched range supplies them. A stored chunk always has
+ * a value for every era it lists, but a stitched range can span an era no chunk
+ * covers, which must carry null rather than be dropped — see
+ * `StitchedSeries.eras`.
  */
 export type NullableNetwork<K extends keyof NetworkSeries> = {
   [P in K]: readonly (number | null)[];
@@ -15,17 +12,13 @@ export type NullableNetwork<K extends keyof NetworkSeries> = {
 import { aprToApy, apportionReward, portionAfterCommission } from './staking';
 
 /**
- * Derivations over chunk data.
+ * Derivations over chunk data. Chunks store chain facts only (see
+ * `OperatorSeriesSchema`); everything a chart plots — reward, APR gross and net
+ * — is computed here, so the pipeline's aggregates and the client's series
+ * share one definition of each formula.
  *
- * Chunks store chain facts only (see `OperatorSeriesSchema`); everything a
- * chart actually plots — an operator's reward, its APR gross and net — is
- * computed here. That keeps one definition of each formula, shared by the
- * pipeline's aggregates and the client's series, and it removed 37% of the
- * chunk payload.
- *
- * All functions are pure, index-aligned, and return `null` wherever the inputs
- * are absent, so a caller can hand the result straight to a chart without
- * checking for gaps first.
+ * All pure, index-aligned, and null wherever the inputs are absent, so a result
+ * can go straight to a chart without checking for gaps.
  */
 
 /** Balances arrive as POLYX; scaling to integers keeps apportionment exact. */
@@ -36,11 +29,9 @@ function toScaledBigInt(polyx: number): bigint {
 }
 
 /**
- * An operator's gross reward per era, in POLYX.
- *
- * Apportioned by reward points with the same truncating integer division the
- * chain uses, so a total summed across many eras matches what was really paid
- * rather than accumulating rounding drift.
+ * An operator's gross reward per era, in POLYX. Apportioned with the same
+ * truncating integer division the chain uses, so a total summed across many
+ * eras matches what was paid rather than accumulating drift.
  */
 export function deriveOperatorRewards(
   operator: Pick<OperatorSeries, 'points'>,
@@ -68,12 +59,7 @@ export interface DerivedApr {
   net: (number | null)[];
 }
 
-/**
- * Annualised return per era for one operator, as ratios.
- *
- * The previous app drew gross and net as two separate charts; here they are one
- * pair behind a toggle, which is also why they are computed together.
- */
+/** Annualised return per era for one operator, as ratios. */
 export function deriveOperatorApr(
   operator: OperatorSeries,
   network: NullableNetwork<'validatorReward' | 'totalPoints'>,
@@ -96,9 +82,8 @@ export function deriveOperatorApr(
 
     const g = (reward / stake) * erasPerYear;
     gross.push(g);
-    // A missing commission entry means the operator scored points without a
-    // preferences record for that era. Treating it as zero would overstate the
-    // nominator's return, so the net figure is withheld instead.
+    // Missing commission means points scored without a preferences record for
+    // that era. Withheld rather than zeroed, which would overstate the return.
     net.push(commission == null ? null : g * portionAfterCommission(commission));
   }
 
@@ -131,33 +116,25 @@ export interface EraEstimateInput {
 }
 
 /**
- * Forward-looking return for the era **now in progress**.
+ * Forward-looking return for the era now in progress — every other return
+ * figure on the site looks backwards.
  *
- * Every other return figure on the site looks backwards. This one answers the
- * question a nominator actually has — *what am I likely to earn next* — and it
- * is the half the previous app could not show at all. It was assembled by hand
- * from two sites: the Polymesh Portal for last era's realised return, and the
- * old app's live points chart for whether a node was still producing.
- *
- * The trick is that a *share* of points is meaningful long before the era ends.
- * Points accrue roughly uniformly, so an operator holding 1.2% of the points at
- * hour six is likely to hold about 1.2% at hour twenty-four. The absolute count
- * is useless mid-era; the ratio is not.
+ * Works because a *share* of points is meaningful long before the era ends:
+ * points accrue roughly uniformly, so an operator holding 1.2% of them at hour
+ * six likely holds about 1.2% at hour twenty-four. The absolute count is
+ * useless mid-era; the ratio is not.
  *
  *     era pot  = inflation × issuance ÷ erasPerYear
  *     share    = points ÷ totalPoints
  *     gross    = (pot × share ÷ stake) × erasPerYear
  *              = inflation × issuance × points ÷ (totalPoints × stake)
  *
- * `erasPerYear` cancels, which is worth noticing: the estimate does not depend
- * on knowing the era length, only on the inflation rate and the points split.
- * It also reconciles with `stakingReturns` — give every operator an equal share
- * of points and an equal share of stake and this returns `inflation ÷ ratio`,
- * the network APR, exactly.
+ * `erasPerYear` cancels, so the estimate does not depend on the era length. It
+ * reconciles with `stakingReturns`: equal shares of points and stake return
+ * `inflation ÷ ratio`, the network APR, exactly.
  *
- * Returns nulls rather than zero when the era has produced no points yet. Zero
- * would read as "this operator is earning nothing", which is a different and
- * much more alarming claim than "the era just started".
+ * Nulls rather than zero when the era has produced no points yet — zero reads
+ * as "earning nothing" rather than "the era just started".
  */
 export function deriveEstimatedEraApr({
   points,
@@ -181,8 +158,7 @@ export function deriveEstimatedEraApr({
 
   const gross = (inflation * totalIssuance * points) / (totalPoints * totalStake);
 
-  // As in `deriveOperatorApr`: a missing commission is withheld rather than
-  // treated as zero, which would overstate what a nominator receives.
+  // Missing commission withheld, not zeroed — as in `deriveOperatorApr`.
   return { gross, net: commission == null ? null : gross * portionAfterCommission(commission) };
 }
 
@@ -212,10 +188,8 @@ export function deriveSelfStakeRatio(operator: OperatorSeries): (number | null)[
 }
 
 /**
- * Share of the era's reward points, as a ratio.
- *
- * The comparable measure of block production: raw points depend on how many
- * operators were active, so they are not comparable across eras. This is.
+ * Share of the era's reward points. The comparable measure of block production
+ * — raw points depend on how many operators were active that era.
  */
 export function derivePointsShare(
   operator: Pick<OperatorSeries, 'points'>,
@@ -229,9 +203,8 @@ export function derivePointsShare(
 }
 
 /**
- * Convenience wrapper: every derived series for one operator in one chunk.
- * Returns `null` when the operator has no columns in that chunk, which is the
- * normal case for an operator that joined later.
+ * Every derived series for one operator in one chunk. Null when the operator
+ * has no columns there — normal for one that joined later.
  */
 export function deriveOperatorSeries(chunk: Chunk, address: string, erasPerYear: number) {
   const operator = chunk.operators[address];

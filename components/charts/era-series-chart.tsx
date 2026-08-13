@@ -13,9 +13,7 @@ import type { StitchedSeries } from '@/lib/data/series';
 
 /**
  * A complete era-series chart: frame, band, selected operators, legend, table.
- *
- * This is the composition Phases 4–6 reuse, rather than each page assembling
- * the pieces itself. It exists so that the rules in the design doc — a stated
+ * One composition every page reuses, so the design doc's rules — a stated
  * question, a legend, a table view, stated coverage, a capped series count —
  * are enforced once rather than remembered five times.
  */
@@ -45,39 +43,30 @@ export interface EraSeriesChartProps {
   height?: number;
   includeZero?: boolean;
   /**
-   * Appended to the coverage line.
-   *
-   * For anything the reader needs in order to read the plot correctly rather
-   * than to know what it covers — chiefly `axisRangeNote`, which says a
-   * non-zero-based axis is scaled to the data. Null is accepted so a caller can
-   * pass the helper's result straight through.
+   * Appended to the coverage line: anything needed to read the plot correctly
+   * rather than to know what it covers — chiefly `axisRangeNote`. Null is
+   * accepted so a caller can pass that helper's result straight through.
    */
   note?: string | null | undefined;
   /**
-   * What one point on the x axis is, when it is not an era.
-   *
-   * The weekly rollup feeds this chart 250 buckets spanning 1,749 eras, and the
-   * coverage line read "250 eras" — understating the history fivefold while
-   * looking authoritative. The caller knows the resolution; the chart cannot.
+   * What one point on the x axis is, when it is not an era. The weekly rollup
+   * feeds this chart a few hundred buckets spanning far more eras, so calling
+   * them eras would understate the history. Only the caller knows the
+   * resolution.
    */
   pointNoun?: string | undefined;
   /**
-   * An axis ceiling and the sentence that has to accompany it.
-   *
-   * Taken as one value rather than a `yMax` and a `note`, because the two are
-   * only ever true together: on a log axis nothing is clipped, so a note
-   * claiming "33 points run off the top" would be describing a chart the
-   * reader is not looking at. Passing them separately made that mismatch
-   * possible; passing them joined does not. See `outlierCap`.
+   * An axis ceiling and the sentence that must accompany it, as one value
+   * rather than a separate `yMax` and `note` — the two are only ever true
+   * together, and on a log axis nothing is clipped, so a note about clipped
+   * points would describe a chart the reader is not looking at. See
+   * `outlierCap`.
    */
   cap?: { max: number; note: string } | null | undefined;
   /**
-   * Offers a linear/log switch above the plot, starting on `linear`.
-   *
-   * Only for charts whose data actually spans orders of magnitude — a return
-   * series carrying a validator's first era, or the chain's own first weeks.
-   * On a series that does not, the two views are identical and the control is
-   * just another thing to read.
+   * Offers a linear/log switch above the plot, starting on `linear`. Only for
+   * data that actually spans orders of magnitude — otherwise the two views are
+   * identical and the control is one more thing to read.
    */
   offerLogScale?: boolean | undefined;
   loading?: boolean | undefined;
@@ -112,26 +101,22 @@ export function EraSeriesChart({
 }: EraSeriesChartProps) {
   const [scaleType, setScaleType] = useState<'linear' | 'log'>('linear');
 
-  // A module-level constant, not a fresh `[]` per render: an inline fallback
-  // is a new reference every time, which would invalidate the memos below on
-  // every render and defeat them entirely.
+  // A module-level constant, not an inline `[]`: a fresh reference each render
+  // would invalidate the memos below and defeat them.
   const eras = series?.eras ?? NO_VALUES;
   const eraStart = series?.eraStart ?? NO_VALUES;
 
-  /**
-   * Coverage is stated, never implied. A chart that silently shows 40 eras when
-   * 90 were asked for is worse than one that says so.
-   */
+  // Coverage is stated, never implied — a chart silently showing 40 eras when
+  // 90 were asked for is worse than one that says so.
   const coverage = useMemo(() => {
     if (eras.length === 0) return note ?? undefined;
     const from = formatEraDate(eraStart[0], { withYear: true });
     const to = formatEraDate(eraStart.at(-1), { withYear: true });
     const span = `${eras.length} ${pointNoun} · ${from} – ${to}`;
-    // A log axis has to be declared. Equal vertical distances are equal
-    // *ratios*, so a reader who assumes linear will misread every gap on it.
-    // Joined with a separator, trailing full stops stripped, so the line reads
-    // as a list of facts rather than a paragraph. It sits beside the frame's
-    // controls, and every extra line it wraps to pushes the plot further down.
+    // A log axis has to be declared: equal vertical distances are equal
+    // *ratios*, so a reader assuming linear misreads every gap. Joined with a
+    // separator and stripped of trailing full stops, so the line reads as a
+    // list of facts — each wrapped line pushes the plot further down.
     return [span, note, cap?.note, scaleType === 'log' ? 'Log scale' : null]
       .filter(Boolean)
       .map((part) => String(part).trim().replace(/\.$/, ''))
@@ -171,12 +156,9 @@ export function EraSeriesChart({
       });
     }
 
-    // Only when something is actually drawn. A tinted column in an operator's
-    // own colour needs saying once; listing it on every chart, including the
-    // ones with no gaps, would be chrome explaining nothing. The test is
-    // `interiorGaps`, the same one the plot marks from — asking merely whether
-    // any value is null described a legend entry for eras before an operator
-    // existed, which the chart quite rightly does not mark.
+    // Only when something is actually drawn, and tested with `interiorGaps` —
+    // the same test the plot marks from. Asking merely whether any value is
+    // null would caption eras before an operator existed, which are not marked.
     if (operators.some((op) => interiorGaps(op.values).length > 0)) {
       items.push({
         id: '__gaps',

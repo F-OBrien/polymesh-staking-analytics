@@ -6,25 +6,14 @@ import { OperatorDetail } from '@/components/operator-detail';
 import { Skeleton } from '@/components/states';
 
 /**
- * One page per operator, prerendered at build time.
+ * One page per operator, prerendered at build time. Static export has no server
+ * and no rewrites, so every route must exist as a file; the addresses come from
+ * the generated `public/data/operators.json`. An address absent from it 404s,
+ * which is the honest outcome — there is nowhere to resolve it.
  *
- * Static export has no server and GitHub Pages has no rewrites, so every route
- * must exist as a file. The addresses come from the generated
- * `public/data/operators.json`, which the pipeline writes before the site is
- * built — around a hundred pages, which costs nothing.
- *
- * An address absent from that file 404s. That is the honest outcome: with no
- * server there is nowhere to resolve it, and the detail component already
- * explains the case where an address exists but has no data in range.
- *
- * **A missing dataset fails the build, deliberately.** An earlier revision
- * returned an empty list so a fresh clone would still build. That stopped
- * working in Next 16, which rejects an empty `generateStaticParams()` under
- * `output: export` — and the error it raises names neither the file nor the
- * command that creates it, which cost a CI run to diagnose. Failing here with
- * an actionable message is strictly better, and the silent version was never
- * right anyway: a site built without data would deploy with every operator
- * page missing.
+ * A missing dataset fails the build deliberately, with an actionable message.
+ * Returning an empty list instead is rejected by `output: export` anyway, and
+ * would only deploy a site with every operator page missing.
  */
 
 const REGISTRY_PATH = join(process.cwd(), 'public', 'data', 'operators.json');

@@ -1,18 +1,15 @@
 /**
  * Incremental era ingestion.
  *
- * Runs hourly. Reads the manifest, compares it to the chain's active era, and
- * exits immediately if nothing new has completed — which is the common case,
- * since an era on Polymesh mainnet is 24 hours. A no-op run costs one RPC call
- * and a few seconds (design doc §6.3).
+ * Runs hourly, exiting immediately if no new era has completed — the common
+ * case, since an era is 24 hours. A no-op run costs one RPC call (§6.3).
  *
  *   npm run ingest:era                 # incremental
  *   npm run ingest:era -- --full       # cold rebuild over historyDepth
  *   npm run ingest:era -- --max-eras 5 # bound a catch-up run
  *
- * Deliberately conservative about load: eras are fetched with a small
- * concurrency limit against a shared public node. The pipeline can afford to be
- * slow; the browser could not, which is the entire reason this exists.
+ * Deliberately conservative about load: a small concurrency limit against a
+ * shared public node. The pipeline can afford to be slow.
  */
 
 import { join } from 'node:path';
@@ -96,20 +93,15 @@ async function main(): Promise<void> {
     // The active era is still accruing; only the era before it is final.
     const lastCompleteEra = activeEra.index - 1;
 
-    // Oldest era still held in state. Verified against mainnet: with
-    // activeEra 1746 and historyDepth 84, era 1663 has data and 1662 does not,
-    // so the window is `activeEra - historyDepth + 1` and is anchored on the
-    // ACTIVE era, not the last complete one. Getting this wrong by even one
-    // era produces empty records that look like a chain outage.
+    // Oldest era still held in state. The window is
+    // `activeEra - historyDepth + 1`, anchored on the ACTIVE era rather than
+    // the last complete one — verified against mainnet. Off by one here
+    // produces empty records that look like a chain outage.
     const oldestRetainedEra = Math.max(0, activeEra.index - historyDepth + 1);
 
-    // The resume point is recomputed from the chunks on disk rather than read
-    // from the manifest. The manifest is derived data, so trusting its cursor
-    // means a single bad write — from a crash, or from an older version of this
-    // script — strands every era after it, permanently and silently. Deriving
-    // from the chunks makes the pipeline self-healing: whatever the manifest
-    // claims, we resume from the end of the contiguous span we can actually
-    // see.
+    // Recomputed from the chunks on disk, not read from the manifest: the
+    // manifest is derived data, so trusting its cursor lets one bad write
+    // strand every era after it, silently. Deriving makes this self-healing.
     const storedCoverage = await readStoredCoverage(store, manifest?.chunks ?? []);
     if (manifest && storedCoverage && manifest.lastCompleteEra !== storedCoverage.lastEra) {
       console.warn(
@@ -149,24 +141,14 @@ async function main(): Promise<void> {
         : Math.floor(Date.now() / 1000);
 
     /**
-     * Per-era anchors, from `era-index.json` where it is available.
+     * Per-era anchors, from `era-index.json` where available — exact, for one
+     * archive read per era.
      *
-     * Both values used to be approximations, and the backfill exposed both by
-     * disagreeing with its own neighbour across the boundary:
-     *
-     *  - **Issuance** has no per-era storage, so this stamped today's figure
-     *    onto every era it wrote. Right for one era that just ended; across a
-     *    cold rebuild of eighty-four it is a flat line where the real series
-     *    grows by a reward a day, and the staking ratio derived from it drifts
-     *    with it.
-     *  - **Era start** was extrapolated backwards at a nominal era length.
-     *    Measured drift over the chain's life is large enough that
-     *    extrapolation is days out at the far end.
-     *
-     * The index makes both exact for the cost of one archive read per era.
-     * Absent, the old approximations still apply and the run says so, because
-     * a pipeline that silently degrades is worse than one that is merely
-     * approximate.
+     * Without it both fall back to approximations that are fine for a single
+     * just-ended era and wrong across a cold rebuild: issuance has no per-era
+     * storage, so today's figure gets stamped on every era written, and era
+     * start is extrapolated at a nominal era length, which drifts days out at
+     * the far end. The run warns when it degrades rather than doing so quietly.
      */
     const eraIndex = await store.readEraIndex();
     if (!eraIndex) {

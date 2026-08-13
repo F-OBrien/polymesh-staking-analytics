@@ -5,29 +5,20 @@ import { eraDurationMs, eraProgress } from '@/lib/metrics/staking';
 import type { EraStatus } from '@/lib/schemas/data';
 
 /**
- * Era progress and countdown, derived in the browser.
- *
- * This is the tier-3 derivation from design doc §6.6a, and the reason
- * `latest.json` ships anchors rather than a precomputed `eraProgress`: a
- * snapshot value would be up to 15 minutes stale and would jump when refreshed,
- * whereas this ticks smoothly and **costs no network traffic at all**.
- *
- * Accuracy: drift is bounded by block-time variance over the snapshot interval,
- * which is seconds on a 24-hour era — invisible on a progress ring. Enabling the
- * optional live tier upgrades this to slot-exact.
+ * Era progress and countdown, derived in the browser (§6.6a) — the reason
+ * `latest.json` ships anchors rather than a precomputed `eraProgress`, which
+ * would be up to 15 minutes stale and jump when refreshed. This ticks smoothly
+ * and costs no network traffic; drift is bounded by block-time variance over
+ * the snapshot interval, invisible on a progress ring.
  */
 
 /**
- * The current time, as a value that is stable within a render.
+ * The current time, stable within a render. `Date.now()` during render is
+ * impure: a component re-rendering for an unrelated reason would silently
+ * recompute a duration against a different clock.
  *
- * `Date.now()` called during render is impure — React 19's lint rules reject it
- * outright, and correctly: a component that re-renders for an unrelated reason
- * would silently recompute a duration against a different clock. Anything that
- * needs "now" for display arithmetic takes it from here instead.
- *
- * The default tick is a minute, not a second: callers of this are rendering
- * dates and elapsed spans, where a per-second re-render is pure waste. Use
- * `useEraClock` for a countdown.
+ * The default tick is a minute, since callers render dates and elapsed spans.
+ * Use `useEraClock` for a countdown.
  */
 export function useNow(tickMs = 60_000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -57,13 +48,10 @@ export interface EraClock {
   overdue: boolean;
 
   /**
-   * Where we are in the era's sessions.
-   *
-   * Derived from elapsed time rather than carried from the snapshot's
-   * `currentSessionIndex`, and that is deliberate: a snapshot index is fixed at
-   * the moment it was written and would sit on the wrong session for most of
-   * the fifteen minutes until the next one. Time-derived, it advances on its
-   * own and self-corrects — the same reason `eraProgress` is not precomputed.
+   * Where we are in the era's sessions, derived from elapsed time rather than
+   * the snapshot's `currentSessionIndex` — a written index sits on the wrong
+   * session for most of the fifteen minutes until the next snapshot, where a
+   * time-derived one advances and self-corrects.
    */
   session: {
     /** 1-based position within the era, e.g. 3 of 6. */
@@ -76,9 +64,9 @@ export interface EraClock {
     endsAt: Date;
     secondsRemaining: number;
     /**
-     * True during the era's last session — when the next validator set is
-     * chosen. Stated as "the set is being chosen now" rather than as a
-     * countdown to an exact election block, which we cannot know.
+     * True during the era's last session, when the next validator set is
+     * chosen. Stated as "the set is being chosen now" rather than a countdown
+     * to an exact election block, which we cannot know.
      */
     isFinal: boolean;
   };
@@ -95,9 +83,8 @@ export function useEraClock(eraStatus: EraStatus | null | undefined, tickMs = 10
   useEffect(() => {
     if (!eraStatus) return;
 
-    // A plain interval is correct here: the work per tick is a subtraction and
-    // a divide. Anything cleverer (rAF, visibility gating) would add complexity
-    // for no measurable saving.
+    // A plain interval: the work per tick is a subtraction and a divide, so
+    // rAF or visibility gating would add complexity for no measurable saving.
     const id = setInterval(() => setNow(Date.now()), tickMs);
     return () => clearInterval(id);
   }, [eraStatus, tickMs]);
@@ -117,8 +104,8 @@ export function useEraClock(eraStatus: EraStatus | null | undefined, tickMs = 10
 
   const sessionSeconds = durationSeconds / eraStatus.sessionsPerEra;
   const elapsed = Math.max(0, nowSeconds - eraStatus.eraStart);
-  // Clamped to the last session: past the era's nominal end the snapshot is
-  // simply behind, and reporting "session 7 of 6" would look broken.
+  // Clamped: past the era's nominal end the snapshot is simply behind, and
+  // "session 7 of 6" looks broken.
   const sessionIndex = Math.min(
     Math.floor(elapsed / sessionSeconds),
     eraStatus.sessionsPerEra - 1,

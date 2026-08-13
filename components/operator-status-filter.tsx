@@ -3,26 +3,18 @@
 import type { OperatorStatus } from '@/lib/schemas/data';
 
 /**
- * Which operators a field chart draws.
- *
- * The four statuses are the same four, in the same order, as the directory
- * table's control — a reader who has filtered the table to "active" and then
- * scrolls to a chart of every operator that ever ran is entitled to think one
+ * Which operators a field chart draws. The four statuses match the directory
+ * table's control exactly, in the same order — a reader who filtered the table
+ * to "active" and then meets a chart of everyone who ever ran will assume one
  * of the two is broken.
  *
- * **Pinned is a fifth view, not an exemption.** Pinned operators were briefly
- * shown under every status on the reasoning that a ★ should not be silently
- * undone. That was wrong in a way worth recording: a filter that quietly keeps
- * things back is no longer a filter, and "Active" showing an operator that
- * stopped running six months ago makes the reader distrust the whole control
- * rather than notice the exception. The selection deserves its own view
- * instead, so "show me only my picks" is something a reader asks for and gets
- * exactly.
+ * Pinned is a fifth view, not an exemption: a filter that quietly keeps things
+ * back is not a filter, and "Active" showing an operator that stopped six
+ * months ago makes the whole control untrustworthy.
  *
- * Chart-side this is a *display* filter and nothing more. The summary behind
- * these charts is always computed over the whole field, so the baseline, the
- * margin of error and the spread do not move when the selection changes;
- * hiding a bar must not silently redefine what the rest are measured against.
+ * This is a *display* filter only. The summary behind these charts is always
+ * computed over the whole field, so hiding a bar never redefines the baseline,
+ * margin of error or spread the rest are measured against.
  */
 
 export type StatusFilter = OperatorStatus | 'all' | 'pinned';
@@ -34,13 +26,10 @@ export interface StatusFilterable {
 }
 
 /**
- * Applies the filter, strictly.
- *
- * `pinned` falls back to the whole field when nothing is pinned, rather than
- * returning an empty chart: the option is only offered when a selection exists,
- * but a reader can unpin their last operator while it is selected, and a
- * control that strands the view in a permanent blank is worse than one that
- * quietly widens.
+ * Applies the filter, strictly. `pinned` falls back to the whole field when
+ * nothing is pinned rather than emptying the chart — a reader can unpin their
+ * last operator while that view is selected, and a permanent blank is worse
+ * than a view that quietly widens.
  */
 export function filterOperators<T extends StatusFilterable>(
   items: readonly T[],
@@ -61,22 +50,16 @@ export interface OperatorStatusFilterProps {
   /** How many operators the current selection is hiding. */
   hidden?: number;
   /**
-   * How many of those are pinned.
-   *
-   * Called out separately because it is the one case where hiding is
-   * surprising: the reader chose those operators, and without this the bar they
-   * pinned simply is not there.
+   * How many of those are pinned — called out separately because it is the one
+   * case where hiding is surprising: the reader chose those operators.
    */
   hiddenPinned?: number;
   /** Offers the "Pinned only" view. Omitted when nothing is pinned. */
   showPinnedOption?: boolean;
   /**
-   * What the selection is called here, lower case.
-   *
-   * "Pinned" is the right word on the directory, where a ★ is something the
-   * reader did. On the staking page the same set is the address's *nominations*
-   * — the reader did not choose them in this UI, the chain already holds them —
-   * and calling those "pinned" asks them to translate.
+   * What the selection is called here, lower case. "Pinned" fits the directory,
+   * where a ★ is something the reader did; on the staking page the same set is
+   * the address's nominations, which the chain already holds.
    */
   selectionNoun?: string;
 }

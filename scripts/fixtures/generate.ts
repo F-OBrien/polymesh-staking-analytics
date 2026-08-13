@@ -1,19 +1,11 @@
 /**
- * Deterministic synthetic dataset generator.
+ * Deterministic synthetic dataset generator, for environments with no archive
+ * RPC node (CI sandboxes, offline work, contributors without an endpoint).
+ * Produces a schema-valid dataset with roughly mainnet's shape and statistics.
  *
- * Why this exists: the pipeline needs a live archive RPC node, which is not
- * available in every environment (CI sandboxes, offline work, contributors
- * without an endpoint). Without it, nothing downstream of the data layer could
- * be built or tested. This produces a schema-valid dataset with the same shape
- * and roughly the same statistics as mainnet, so charts, tables and visual
- * regression tests all have something honest to run against.
- *
- * It is **not** a mock in the testing sense — output goes through the same Zod
- * schemas as real data, so a schema change breaks this generator immediately
- * rather than silently diverging.
- *
- * Deterministic by construction: same seed, byte-identical output. That makes
- * it usable as a visual-regression baseline.
+ * Not a mock: output goes through the same Zod schemas as real data, so a
+ * schema change breaks this immediately rather than silently diverging. Same
+ * seed, byte-identical output — usable as a visual-regression baseline.
  *
  *   npm run fixtures -- --eras 200 --operators 100 --seed 42
  *
@@ -72,8 +64,7 @@ function between(rng: () => number, min: number, max: number): number {
 
 /**
  * Draws from a rough log-normal, which is how validator stake actually
- * distributes — a few large operators and a long tail, not a bell curve.
- * A uniform distribution here would make the decentralisation metrics
+ * distributes. A uniform draw would make the decentralisation metrics
  * meaningless.
  */
 function logNormal(rng: () => number, median: number, sigma: number): number {
@@ -124,9 +115,8 @@ function parseArgs(argv: readonly string[]): Options {
     eras: get('--eras', 200),
     operators: get('--operators', 100),
     seed: get('--seed', 42),
-    // Overridable so the generator can be run against a scratch directory.
-    // Without it the only way to exercise it is to point it at `public/data`,
-    // which is exactly what `guardRealData` exists to prevent.
+    // Overridable so this can run against a scratch directory rather than
+    // `public/data`, which `guardRealData` exists to protect.
     outDir: (() => {
       const i = argv.indexOf('--out');
       return i === -1 ? join(process.cwd(), 'public', 'data') : (argv[i + 1] ?? '');
@@ -153,9 +143,8 @@ interface SyntheticOperator {
 }
 
 /**
- * Generates an SS58-shaped address. Not a valid encoding — nothing in the app
- * decodes these — but the right alphabet and length so truncation, monospace
- * alignment and column widths behave as they will with real data.
+ * An SS58-shaped address. Not a valid encoding (nothing here decodes these) but
+ * the right alphabet and length, so truncation and column widths behave.
  */
 function syntheticAddress(rng: () => number): string {
   const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';

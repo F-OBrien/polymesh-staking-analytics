@@ -1,19 +1,12 @@
 import { z } from 'zod';
 
 /**
- * The data contract (design doc §6.4). One definition, used by the pipeline
- * that writes these files and the client that reads them — so a shape change
- * cannot drift between the two.
+ * The data contract (design doc §6.4), shared by the pipeline that writes these
+ * files and the client that reads them.
  *
- * Two conventions matter and are easy to get wrong:
- *
- *  - **Balances in chunks are POLYX as `number`** (base units / 10^6, 6 dp).
- *    Chart-precise and far smaller on the wire.
- *  - **Balances in `latest.json` are exact base-unit strings.** Anything a user
- *    might reconcile against a block explorer keeps full precision.
- *
- * Never mix them. `PolyxAmount` and `BaseUnits` below make the distinction
- * visible at every use site.
+ * Balances come in two forms, never mixed: chunks use POLYX as `number`
+ * (`PolyxAmount`), `latest.json` uses exact base-unit strings (`BaseUnits`) so
+ * anything reconcilable against a block explorer keeps full precision.
  */
 
 /** POLYX, already divided by 10^tokenDecimals. Display and charting only. */
@@ -46,16 +39,14 @@ const NullableNumberColumn = z.array(z.number().nullable());
 // ---------------------------------------------------------------------------
 
 /**
- * How an era's data reached us. `source` exists so a backfill that later proves
- * subtly wrong can be dropped by exactly the eras it wrote, leaving natively
- * ingested history untouched (design doc §6.5).
+ * How an era's data reached us, so a bad backfill can be dropped by exactly the
+ * eras it wrote (design doc §6.5).
  */
 export const EraSourceSchema = z.enum(['live', 'backfill-archive', 'backfill-indexer']);
 
 /**
- * Exposure storage shape. Polymesh v8 replaced a single clipped exposure per
- * operator with an overview plus paged nominators; eras recorded before the
- * upgrade only have the clipped form, so this varies per era, not per chain.
+ * Exposure storage shape. Polymesh v8 replaced clipped exposure with an
+ * overview plus paged nominators, so this varies per era, not per chain.
  */
 export const ExposureShapeSchema = z.enum(['clipped', 'paged']);
 
@@ -70,16 +61,13 @@ export const ProvenanceSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Per-operator series within a chunk. Every column is the same length as the
- * chunk's `eras` array and is indexed by position, which is what keeps the file
- * small: no repeated keys, no per-era objects.
+ * Per-operator series within a chunk. Every column is positionally indexed and
+ * the same length as the chunk's `eras`.
  *
- * **Chain facts only — nothing derived.** An earlier revision also stored
- * `reward`, `apr` and `aprGross`, but all three are computable from these
- * columns plus `network.validatorReward` and `network.totalPoints`. Storing
- * them cost 37% of the payload (measured: 259 KB vs 120 KB budget for a 90-era
- * window) and, worse, created a second definition of APR that could drift from
- * `lib/metrics/staking.ts`. Derive them via `lib/metrics/derive.ts` instead.
+ * Chain facts only — no derived values. Reward and APR are computable from
+ * these columns plus `network.validatorReward`/`totalPoints`; storing them
+ * would bloat the payload and create a second definition of APR that could
+ * drift from `lib/metrics/staking.ts`. Derive via `lib/metrics/derive.ts`.
  */
 export const OperatorSeriesSchema = z.object({
   points: NullableNumberColumn,
@@ -180,10 +168,9 @@ export const ManifestSchema = z
 // ---------------------------------------------------------------------------
 
 /**
- * Anchors the client derives era/epoch progress from, against its own clock
- * (design doc §6.6a). There is deliberately no `eraProgress` field: a
- * precomputed progress value is stale the moment it is written, and shipping
- * one would invite the UI to display it rather than derive.
+ * Anchors the client derives era/epoch progress from against its own clock
+ * (design doc §6.6a). No `eraProgress` field: a precomputed progress value is
+ * stale the moment it is written.
  */
 export const EraStatusSchema = z.object({
   currentEra: EraIndex,
@@ -210,17 +197,10 @@ export const LatestOperatorSchema = z.object({
   /**
    * How many exposure pages the operator's backers were split across.
    *
-   * A payout mechanic, and deliberately *not* a warning. There was an
-   * `oversubscribed` flag here that badged any operator with more than
-   * `maxExposurePageSize` (64) nominators as "full", claiming new nominators
-   * might earn nothing. That is the pre-paged-exposure rule and it is wrong on
-   * Polymesh: every page is rewarded, the runtime has a test named
-   * `test_nominators_over_max_exposure_page_size_are_rewarded`, and the chain
-   * pays each page automatically via `validators::payouts()` rather than
-   * waiting for someone to call `payout_stakers`. Verified on mainnet — see
-   * `npm run probe:payouts`, which confirms every page of every multi-page
-   * operator was claimed. Page count has no consequence for a nominator, so
-   * nothing in the UI treats it as one.
+   * A payout mechanic, not a warning: on Polymesh every page is rewarded and
+   * the chain pays each one automatically via `validators::payouts()`. Page
+   * count has no consequence for a nominator, so the UI must not treat it as
+   * one (no "oversubscribed" badge). Verified by `npm run probe:payouts`.
    */
   pageCount: z.number().int().nonnegative(),
   /** Operator has blocked further nominations. */
@@ -239,12 +219,10 @@ export const LatestSchema = z.object({
   /**
    * The chain's fixed annual reward ceiling, in base units.
    *
-   * Carried because the reward curve cannot be drawn honestly without it, and
-   * it cannot be inferred from `inflation`: below the ceiling the curve and the
-   * capped value agree exactly, so the cap is invisible in the output until it
-   * binds. Polymesh's 140,000,000 POLYX ceiling starts binding at about 50%
-   * staked, well below the curve's 70% "ideal" — which is therefore never
-   * reached, and is the wrong threshold to describe the network against.
+   * Cannot be inferred from `inflation`: below the ceiling the curve and the
+   * capped value agree exactly, so the cap is invisible until it binds.
+   * Polymesh's 140,000,000 POLYX ceiling binds from ~50% staked, below the
+   * curve's 70% "ideal" — so that ideal is never reached.
    */
   fixedYearlyReward: BaseUnits,
   stakingRatio: Ratio,
@@ -270,18 +248,10 @@ export const OperatorRecordSchema = z.object({
   /**
    * From the official registry, else a truncated address.
    *
-   * **There is deliberately no `nodeLabel`.** An operator running several nodes
-   * used to get "Assetera 1", "Assetera 2" and so on, numbered by the position
-   * of each stash in a lexicographic sort of that identity's addresses. Nothing
-   * on chain or in the registry carries that number — we invented it — and it is
-   * not stable: adding a stash that sorts earlier renumbers every node after it,
-   * so today's "Bitgo 5" silently becomes "Bitgo 6" and a *different* node takes
-   * the old name. Anyone who noted a number down would then be reading the wrong
-   * operator.
-   *
-   * Several nodes under one identity therefore share a name, and are told apart
-   * by their address — which is the thing that actually identifies them, and is
-   * shown beside the name everywhere it matters.
+   * Several nodes under one identity share a name and are told apart by their
+   * address. Do not add a per-node number ("Bitgo 5"): nothing on chain carries
+   * one, and any we derived from a sort of the identity's stashes would
+   * renumber every node whenever a stash was added.
    */
   name: z.string(),
   website: z.string().nullable(),
@@ -294,8 +264,7 @@ export const OperatorRegistrySchema = z.record(Address, OperatorRecordSchema);
 
 /**
  * The upstream registry maintained by the Polymesh Association, keyed by DID.
- * Fetched by the pipeline and baked into our own registry so the client makes
- * no extra request and we hold a snapshot if the file ever moves.
+ * Baked into our own registry at ingest so the client makes no extra request.
  */
 export const UpstreamOperatorNamesSchema = z.record(z.string(), z.object({ name: z.string() }));
 
@@ -306,13 +275,8 @@ export const UpstreamOperatorNamesSchema = z.record(z.string(), z.object({ name:
 /**
  * One operator slashed in one era.
  *
- * **The offence type is deliberately absent.** `validatorSlashInEra` records
- * only the fraction and the amount; which offence caused it lives in the
- * `offences` pallet's events, not in queryable state. Inferring a type from the
- * fraction is tempting — 7% looks like unresponsiveness — but the fractions
- * overlap, and a plausible-looking wrong label on a page about operator
- * misconduct is worse than no label. Phase 7's indexer client can supply the
- * real type; until then the column does not exist.
+ * No offence type: `validatorSlashInEra` records only fraction and amount, and
+ * the fractions overlap too much to infer a type from. Don't guess one.
  */
 export const SlashEventSchema = z.object({
   era: EraIndex,
@@ -324,13 +288,9 @@ export const SlashEventSchema = z.object({
 });
 
 /**
- * Per-era nominator slash totals.
- *
- * Kept separate from `events` because `nominatorSlashInEra` is keyed by
- * (era, nominator) and carries no back-reference to the operator responsible.
- * The count and total are therefore honest at era granularity and cannot be
- * attributed per operator — presenting them inside an operator's row would
- * imply an attribution the chain does not give us.
+ * Per-era nominator slash totals. Separate from `events` because
+ * `nominatorSlashInEra` is keyed by (era, nominator) with no back-reference to
+ * the operator, so these cannot be attributed per operator.
  */
 export const NominatorSlashTotalSchema = z.object({
   era: EraIndex,
@@ -339,14 +299,10 @@ export const NominatorSlashTotalSchema = z.object({
 });
 
 /**
- * Who slashing applies to, read from `validators.slashingAllowedFor`.
- *
- * Polymesh gates nominator slashing behind a runtime switch, and mainnet has it
- * set to `Validator` — only an operator's own stake is at risk. This is
- * governance-changeable, so it is read per run rather than assumed; a page that
- * told nominators they were safe would become wrong the day it flipped.
- *
- * `null` when the chain does not expose the switch at all.
+ * Who slashing applies to, read from `validators.slashingAllowedFor`. Mainnet
+ * is `Validator` (only the operator's own stake at risk), but this is
+ * governance-changeable, so read it per run rather than assuming. `null` when
+ * the chain does not expose the switch.
  */
 export const SlashingScopeSchema = z.enum(['None', 'Validator', 'ValidatorAndNominator']);
 
@@ -357,9 +313,8 @@ export const SlashesSchema = z
     scope: SlashingScopeSchema.nullable(),
     /**
      * The window actually scanned. Slash storage is pruned to the chain's
-     * history depth (~84 eras), so absence of an event outside this window is
-     * not evidence that none occurred — the UI must say so rather than render
-     * an empty table that reads as "never slashed".
+     * history depth (~84 eras), so absence outside this window is not evidence
+     * of no slash — the UI must say so rather than read as "never slashed".
      */
     firstEra: EraIndex,
     lastEra: EraIndex,
@@ -382,36 +337,21 @@ export const SlashesSchema = z
 /**
  * One offence reported against one operator in one era.
  *
- * Sourced from the indexer's `staking.SlashReported` events, which is the only
- * place this exists. `slashes.json` is built from `validatorSlashInEra`, and
- * that storage records what was *taken* — on a chain with validator slashing
- * effectively disabled it is empty, so a real outage leaves no trace in it at
- * all. The event is emitted regardless, with a zero fraction, and it names the
- * validator and the era directly.
+ * Sourced from the indexer's `staking.SlashReported` events. `slashes.json`
+ * cannot serve: it is built from `validatorSlashInEra`, which records what was
+ * *taken*, and is empty on a chain with validator slashing disabled.
+ * `imOnline.SomeOffline` cannot either — the indexer returns zero rows for it.
  *
- * **`imOnline.SomeOffline` is not the source, despite being the obvious one.**
- * Queried against mainnet it returns zero rows — the indexer does not carry it.
- * `SlashReported` does, 145 of them, and it is the downstream record of the
- * same offence: measured, the two reports against Calico Capital at blocks
- * 23,901,550 and 23,903,929 land in era 1670, the era its points collapsed from
- * ~3,200 to 180 before it dropped out of the set entirely for 1671–1672.
- *
- * **No offence *kind*.** The event carries validator, fraction and era, and
- * nothing that distinguishes an unresponsiveness report from an equivocation.
- * Labelling every zero-fraction report "offline" would be a guess printed on a
- * page about operator misconduct, so the kind is absent here for the same
- * reason it is absent from `SlashEventSchema`.
+ * No offence kind, for the same reason as `SlashEventSchema`: the event carries
+ * only validator, fraction and era.
  */
 export const OffenceReportSchema = z.object({
   /** The era the offence occurred in, from the event's own `slash_era`. */
   era: EraIndex,
   address: Address,
   /**
-   * Proportion of exposure the report called for, in [0,1].
-   *
-   * Zero on mainnet, because `slashingAllowedFor` is set so that nothing is
-   * actually taken. Kept because it is the difference between a report that
-   * cost the operator nothing and one that did, and that switch is
+   * Proportion of exposure the report called for, in [0,1]. Zero on mainnet
+   * because `slashingAllowedFor` takes nothing, but that switch is
    * governance-changeable.
    */
   fraction: Ratio,
@@ -425,11 +365,9 @@ export const OffencesSchema = z.object({
   schemaVersion: z.literal(1),
   generatedAt: z.iso.datetime(),
   /**
-   * Highest era with a report, or null when there are none.
-   *
-   * There is no `firstEra` counterpart, and the omission is deliberate: the
-   * indexer covers the chain from genesis, so unlike `slashes.json` there is no
-   * pruning window to disclaim. Absence of a report here is evidence.
+   * Highest era with a report, or null when there are none. No `firstEra`
+   * counterpart: the indexer covers the chain from genesis, so unlike
+   * `slashes.json` there is no pruning window and absence here is evidence.
    */
   lastEra: EraIndex.nullable(),
   reports: z.array(OffenceReportSchema),
@@ -457,13 +395,9 @@ export const RollupSchema = z.object({
   avgApr: z.array(Ratio),
   activeOperators: z.array(z.number()),
   /**
-   * Enough of `NetworkSeries` to draw the same charts at week resolution.
-   *
-   * Without these a five-year view of the return would lose its distribution
-   * band and its commission line, so switching resolution would quietly change
-   * what the chart *shows* rather than only how finely. Five numbers a week is
-   * nothing — the whole file stays well under a hundred kilobytes for all of
-   * history.
+   * Enough of `NetworkSeries` that switching to week resolution changes only
+   * how finely a chart is drawn, not what it shows (distribution band,
+   * commission line).
    */
   nominatorCount: z.array(z.number()),
   avgCommission: z.array(Ratio),
@@ -474,20 +408,13 @@ export const RollupSchema = z.object({
    * How the week's `validatorReward` was divided, in POLYX. Summed like the
    * reward itself, since both are flows rather than balances.
    *
-   * These exist here and *not* in `NetworkSeriesSchema` on purpose. A chunk
-   * carries every operator's commission and self-stake, so the split is already
-   * derivable from it exactly — adding a column would duplicate a derivable
-   * fact and, worse, would change the shape of files that are immutable once
-   * written and would all have to be rebuilt from the chain.
+   * Carried here but not in `NetworkSeriesSchema`: a chunk holds every
+   * operator's commission and self-stake so the split is derivable from it,
+   * whereas the rollup has no per-operator columns. Re-derived from the chunks
+   * on every ingest, so the two resolutions cannot drift.
    *
-   * The rollup has no such escape: it deliberately holds no per-operator
-   * columns, so a week's split cannot be recovered from it and has to be
-   * carried. It is re-derived from the chunks on every ingest, so the two
-   * resolutions cannot drift.
-   *
-   * `nominators` is the remainder and is not stored: it is
-   * `validatorReward − commissionPaid − selfStakePaid`, and storing it would
-   * create a fourth number that could disagree with the other three.
+   * The nominator share is the remainder and is not stored — a fourth number
+   * could only disagree with the other three.
    */
   commissionPaid: z.array(PolyxAmount),
   selfStakePaid: z.array(PolyxAmount),
@@ -498,27 +425,20 @@ export const RollupSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Every era on chain, with the block and moment it began. All of them, not just
- * the ones we hold chunks for.
+ * Every era on chain, with the block and moment it began — not just the eras we
+ * hold chunks for. Answers "what era was this reward paid for", "what date is
+ * era 1403" and "which block should the backfill read era N at", none of which
+ * chunk data (~85 eras of a 1,700+ era chain) can.
  *
- * This exists because three separate problems turned out to be the same
- * problem — "what era was this reward paid for", "what date is era 1403", and
- * "which block should the backfill read era N at" — and none of them can be
- * answered from chunk data, which covers ~85 eras against a chain that has run
- * for over 1,700.
+ * Do not compute era starts arithmetically. Blocks do not arrive at exactly 6s
+ * forever: era 0 began at 17:26 UTC and era 1748 at 13:26, so `firstStart +
+ * era × 86400` drifts by hours on a page used for tax reporting.
  *
- * **It cannot be arithmetic.** An era is nominally 24h, so `firstStart + era ×
- * 86400` is tempting. Measured against the chain, era 0 began at 17:26 UTC and
- * era 1748 began at 13:26 — four hours of drift, because blocks do not arrive
- * at exactly 6s forever. A computed date would be up to half a day out at the
- * far end, silently, on a page people use for tax reporting.
+ * Built from the indexer's era-transition events — `staking.EraPayout` (eras
+ * 0–1120) and `staking.EraPaid` (1121 onward); the pallet renamed it, and
+ * querying only one loses most of history.
  *
- * Built from the indexer, which records every era transition as a
- * `staking.EraPayout` event (eras 0–1120) or `staking.EraPaid` (1121 onward) —
- * the pallet renamed it, and querying only one loses most of history.
- *
- * Columnar and contiguous: eras run `firstEra` to `firstEra + block.length - 1`
- * with no gaps, so the era index is the array index plus `firstEra`.
+ * Columnar and contiguous, so an era's index is its array index plus `firstEra`.
  */
 export const EraIndexSchema = z
   .object({
@@ -535,14 +455,13 @@ export const EraIndexSchema = z
     message: 'block and start must be the same length',
   })
   .refine(
+    // Non-monotonic means the indexer pages came back out of order.
     (value) => value.start.every((v, i) => i === 0 || v >= (value.start[i - 1] ?? 0)),
-    // A non-monotonic series means the pages came back out of order, which is
-    // the failure that produced shuffled reward history once already.
     { message: 'era start times must be non-decreasing' },
   );
 
 // ---------------------------------------------------------------------------
-// Inferred types — always derive from the schema, never hand-write alongside
+// Inferred types — derive from the schema, never hand-write alongside
 // ---------------------------------------------------------------------------
 
 export type EraIndexFile = z.infer<typeof EraIndexSchema>;

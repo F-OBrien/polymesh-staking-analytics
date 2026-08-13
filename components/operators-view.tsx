@@ -24,15 +24,10 @@ import { outlierCap } from '@/lib/charts/notes';
 import type { NamedSeries } from '@/components/charts/banded-line-chart';
 
 /**
- * The operator directory.
- *
- * Table first, charts second. That ordering is the point: a ranked, filterable
- * table is how the "who should I nominate?" question actually gets answered,
- * and the previous app had none — a hundred overlapping lines was the only
- * comparison tool it offered.
- *
- * The charts below react to whatever is pinned in the table, so the two are one
- * tool rather than two views of the same data.
+ * The operator directory. Table first, charts second: a ranked, filterable
+ * table is how "who should I nominate?" actually gets answered. The charts
+ * react to whatever is pinned in the table, so the two are one tool rather than
+ * two views of the same data.
  */
 export function OperatorsView() {
   const manifest = useManifest();
@@ -44,16 +39,12 @@ export function OperatorsView() {
 
   const erasPerYear = manifest.data?.erasPerYear ?? 365;
 
-  /**
-   * Live is opt-in and never gates first paint (§6.6a). When it is on, the
-   * two current-era columns stop being a 15-minute-old snapshot and start
-   * updating as blocks arrive — which is the "is my node producing right now?"
-   * confirmation the previous app's live points chart provided.
-   */
+  // Opt-in, and never gates first paint (§6.6a). On, the two current-era
+  // columns stop being a 15-minute-old snapshot and update as blocks arrive.
   const live = useLive();
 
-  // Tier 3: derived in the browser from the snapshot's anchors against the
-  // local clock, so it ticks with no network traffic at all (§6.6a).
+  // Derived in the browser from the snapshot's anchors against the local
+  // clock, so it ticks with no network traffic (§6.6a).
   const clock = useEraClock(latest.data?.eraStatus);
 
   const rows = useMemo(
@@ -68,17 +59,11 @@ export function OperatorsView() {
     [series, latest.data, registry.data, erasPerYear, live.enabled, live.state.eraPoints],
   );
 
-  /**
-   * What the charts draw when nothing is pinned.
-   *
-   * Was "the five largest by stake", which was both vague and close to
-   * meaningless: Polymesh's election equalises exposure, so the whole field
-   * spans under 4% on total stake and the top five sit within 0.1% of each
-   * other. Picking them was effectively picking at random and calling it a
-   * ranking. Highest measured return over the selected range at least answers
-   * the question the page is for. Phase 7's wallet nominations take precedence
-   * over both when a wallet is connected.
-   */
+  // What the charts draw when nothing is pinned: highest measured return over
+  // the selected range, which answers the question the page is for. Not stake —
+  // the election equalises exposure, so the whole field spans a few percent and
+  // ranking on it is near-random. A connected wallet's nominations win over
+  // both.
   const charted = useMemo(() => {
     if (selected.length > 0) return selected;
     if (!series) return [];
@@ -120,11 +105,9 @@ export function OperatorsView() {
     ? { lo: series.network.aprP10, mid: series.network.aprP50, hi: series.network.aprP90 }
     : undefined;
 
-  /**
-   * A ceiling for the return chart. See the note in `operator-detail.tsx`: an
-   * operator's first era pays a multiple of everything after it, and one such
-   * point flattens the whole plot. Taken across every series drawn.
-   */
+  // A ceiling for the return chart, across every series drawn: an operator's
+  // first era pays a multiple of everything after it, and one such point
+  // flattens the whole plot. See `operator-detail.tsx`.
   const aprCap = useMemo(
     () =>
       outlierCap(

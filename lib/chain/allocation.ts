@@ -3,30 +3,17 @@
 import type { ApiLike } from './compat';
 
 /**
- * Where a nominator's stake actually went, for a given era.
+ * Where a nominator's stake actually went, for a given era. "Bonded" is a
+ * number the user chose; assigned is what the election did with it, and they
+ * differ in three ways:
  *
- * This is the gap between what `/my-staking` used to show and what is true.
- * "Bonded" is a number the user chose; **assigned** is what the election did
- * with it, and the two differ in three ways that all matter:
- *
- *  1. **The election picks a subset of your targets.** Phragmén optimises the
+ *  1. The election picks a subset of your targets. Phragmén optimises the
  *     network's stake distribution, not yours, so nominating eight operators
- *     very often means backing one or two of them. Measured on a real mainnet
- *     stash: 2,019,000 POLYX nominating eight elected operators, with the whole
- *     amount assigned to a single one. Anyone reading the nomination list would
- *     reasonably believe they were diversified across eight. They were not.
- *  2. **A new nomination does not take effect until the next election.** The
- *     same stash was assigned nothing at all in the previous era, because it
- *     nominated during it.
- *  3. **Rewards for era N are paid during era N+1.** So the exposure that earned
- *     the payout landing today is the *previous* era's, which is why both are
- *     read here. "Why did I earn nothing?" is usually answered by the previous
- *     era's allocation being zero, not by anything wrong today.
- *
- * Cost is one prefix scan per nomination per era. `erasStakersPaged` is keyed
- * `(era, validator, page)`, so a partial key returns every page of an operator's
- * exposure in a single read — nominations are capped at 16, so this is bounded
- * and it only ever runs for the address a user explicitly asked about.
+ *     commonly means backing one.
+ *  2. A new nomination does not take effect until the next election.
+ *  3. Rewards for era N are paid during era N+1, so the exposure that earned
+ *     today's payout is the previous era's — which is why both are read here.
+ *     "Why did I earn nothing?" is usually the previous era's allocation.
  */
 
 export interface TargetAllocation {
@@ -39,10 +26,9 @@ export interface TargetAllocation {
   /** Whether the operator was in the active set at all this era. */
   elected: boolean;
   /**
-   * Whether the stash *currently* nominates this operator.
-   *
-   * False means the stash is exposed to an operator it has since dropped. That
-   * is not an error and not stale data — see `readEraAllocation`.
+   * Whether the stash currently nominates this operator. False means it is
+   * exposed to an operator it has since dropped — not an error, and not stale
+   * data. See `readEraAllocation`.
    */
   nominated: boolean;
 }
@@ -77,27 +63,18 @@ interface Backing {
 
 /**
  * Every operator this stash is exposed to in an era, found by searching the
- * whole era's exposure rather than by consulting the nomination list.
+ * era's whole exposure rather than the nomination list — the correctness point
+ * of the module.
  *
- * **This is the correctness point of the module.** Nominations can be changed
- * at any moment; exposure is fixed at the election. Re-nominate mid-era and
- * your stake stays with the operator you just dropped — who is no longer in
- * `staking.nominators(stash).targets`. Iterating the nomination list therefore
- * cannot find your own stake, and reports a normally-earning position as
- * "nothing assigned". That was a real bug here, and it would have shown its
- * worst answer at exactly the moment someone is most likely to look: just
- * after changing who they back.
+ * Nominations change at any moment; exposure is fixed at the election. Re-
+ * nominate mid-era and your stake stays with the operator you just dropped, who
+ * is no longer in `staking.nominators(stash).targets` — so iterating that list
+ * reports a normally-earning position as "nothing assigned".
  *
  * `erasStakersPaged.entries(era)` is a single prefix read over every operator
- * and page, so it cannot miss anything. Measured on mainnet: **one RPC call,
- * ~425ms, 74 KB, 2,034 nominator edges across 86 operators** — against sixteen
- * calls and ~356ms for the per-nomination version it replaces. Fewer round
- * trips, and no way to be wrong.
- *
- * The design doc (§2.1) rightly calls this the heaviest query available, but
- * that warning is about the previous app issuing it *85 times on every page
- * load*. Twice, on demand, for the address a user explicitly asked about, is a
- * different thing entirely.
+ * and page (~425ms, 74 KB on mainnet), so it cannot miss anything. §2.1 calls
+ * this the heaviest query available; that is about issuing it per operator on
+ * every page load, not twice on demand for one address.
  */
 async function readEraBacking(api: ApiLike, stash: string, era: number): Promise<Backing[]> {
   const backing: Backing[] = [];
@@ -131,15 +108,10 @@ async function readEraBacking(api: ApiLike, stash: string, era: number): Promise
 }
 
 /**
- * Each elected operator's exposure overview for an era, keyed by address.
- *
- * Needed for two things. Obviously: which operators were elected, so a
- * nomination can be reported as "not elected" rather than "not backing you".
- * Less obviously: **an operator's own self-stake lives here, in `own`, and not
- * in the `others` list a nominator appears in.** Without this, an operator
- * viewing their own stash sees "assigned: nothing" while their own bond is
- * fully at work — the same class of wrong answer as the nomination-list bug,
- * for a different group of users.
+ * Each elected operator's exposure overview for an era, keyed by address. Gives
+ * which operators were elected — so a nomination reads "not elected" rather
+ * than "not backing you" — and an operator's own self-stake, which lives in
+ * `own` rather than the `others` list a nominator appears in.
  */
 async function readOverviews(api: ApiLike, era: number): Promise<Map<string, { own: bigint }>> {
   try {
@@ -157,16 +129,11 @@ async function readOverviews(api: ApiLike, era: number): Promise<Map<string, { o
 }
 
 /**
- * How this stash's stake was allocated for one era.
- *
- * The returned list is the **union** of what the stash nominates and what it is
- * actually exposed to. Those two sets can differ in both directions, and each
- * difference means something a reader needs told:
- *
- *  - nominated but not backed — the election chose other targets, or the
- *    nomination post-dates the election;
- *  - backed but not nominated — the nomination was changed after the election,
- *    and the stake stays put until the next one.
+ * How this stash's stake was allocated for one era. The list is the union of
+ * what the stash nominates and what it is exposed to, which differ both ways:
+ * nominated but not backed (the election chose others, or the nomination
+ * post-dates it), and backed but not nominated (changed after the election, so
+ * the stake stays put until the next one).
  */
 export async function readEraAllocation(
   api: ApiLike,
@@ -182,8 +149,8 @@ export async function readEraAllocation(
   const byOperator = new Map<string, { value: bigint; page: number }>();
   for (const entry of backing) {
     const existing = byOperator.get(entry.operator);
-    // A stash appears on exactly one page per operator, but summing rather
-    // than assigning keeps this correct if that ever stops being true.
+    // A stash appears on one page per operator; summing rather than assigning
+    // stays correct if that ever changes.
     byOperator.set(entry.operator, {
       value: (existing?.value ?? 0n) + entry.value,
       page: entry.page,
@@ -210,8 +177,8 @@ export async function readEraAllocation(
 
   return {
     era,
-    // Own stake counts as assigned: it is exposed and earning, and excluding it
-    // would tell an operator their bond was idle.
+    // Own stake counts as assigned — it is exposed and earning, and excluding
+    // it would tell an operator their bond was idle.
     assigned: allocations.reduce((sum, a) => sum + a.value, own),
     unnominated: allocations.reduce((sum, a) => (a.nominated ? sum : sum + a.value), 0n),
     own,
@@ -223,26 +190,20 @@ export interface StakeAllocation {
   /** The era now running — what the stake is doing right now. */
   current: EraAllocation;
   /**
-   * The era before it — the one whose rewards are being paid out now.
-   *
-   * Null when there is no previous era to read. Kept separate rather than
-   * merged, because "what am I earning on today" and "what is today's payout
-   * for" are different questions with different answers.
+   * The era before it — the one whose rewards are being paid out now. Kept
+   * separate because "what am I earning on today" and "what is today's payout
+   * for" are different questions. Null when there is no previous era.
    */
   previous: EraAllocation | null;
 }
 
 /**
- * Reads the active era **from the chain**, not from the snapshot.
+ * Reads the active era from the chain, not from the snapshot. `latest.json` is
+ * regenerated every fifteen minutes, so its `activeEra` lags across an era
+ * boundary — and exposure is keyed by era, so the snapshot's number reads the
+ * previous era's exposure and reports a funded stash as having nothing.
  *
- * This is a tier mismatch that produced a genuinely wrong answer. `latest.json`
- * is regenerated every fifteen minutes, so its `activeEra` lags the chain
- * across an era boundary — and exposure is keyed by era. Using the snapshot's
- * number here read the *previous* era's exposure and reported a stash with
- * 2,019,000 POLYX assigned as having nothing at all.
- *
- * Anything read over the socket should ask the socket what era it is. The
- * snapshot's era is right for snapshot-derived figures and wrong for these.
+ * Anything read over the socket should ask the socket what era it is.
  */
 async function readActiveEra(api: ApiLike): Promise<number | null> {
   try {
@@ -263,11 +224,8 @@ export async function readStakeAllocation(
 ): Promise<StakeAllocation> {
   const era = (await readActiveEra(api)) ?? snapshotEra;
 
-  // Note there is no `targets.length === 0` shortcut. A stash that has chilled
-  // — withdrawn its nominations entirely — still has exposure for the current
-  // era and is still earning from it. Skipping the read for an empty
-  // nomination list would report that stake as gone.
-
+  // No `targets.length === 0` shortcut: a chilled stash still has exposure for
+  // the current era and is still earning from it.
   const [current, previous] = await Promise.all([
     readEraAllocation(api, stash, era, targets),
     era > 0 ? readEraAllocation(api, stash, era - 1, targets) : Promise.resolve(null),
@@ -277,12 +235,9 @@ export async function readStakeAllocation(
 }
 
 /**
- * The part of an active bond the election did not put to work.
- *
- * Never negative: assigned stake can exceed the current ledger balance
- * transiently — the exposure was snapshotted at the election, and an unbond
- * since then lowers `active` without changing this era's exposure. Reporting a
- * negative "idle" figure would be nonsense, so it clamps.
+ * The part of an active bond the election did not put to work. Clamped at zero:
+ * an unbond since the election lowers `active` without changing this era's
+ * exposure, so assigned can transiently exceed it.
  */
 export function idleStake(active: bigint, assigned: bigint): bigint {
   const idle = active - assigned;

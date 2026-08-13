@@ -1,20 +1,15 @@
 /**
- * Operator identity registry.
+ * Operator identity registry, built rather than hand-maintained so it cannot go
+ * stale when an operator rebrands.
  *
- * Replaces the previous app's hand-maintained map of ~100 stash addresses to
- * display names, which went stale the moment an operator rebranded (its history
- * contains commits titled "Rename Tigerwit to Calico Capital" and an entry
- * literally labelled "Marketlend 1 (old)").
- *
- * Names come from the registry the Polymesh Association maintains and the
- * official Portal uses. It is keyed by **DID**, while everything in staking is
- * keyed by **stash address**, so the join runs through on-chain identity:
+ * Names come from the registry the Polymesh Association maintains, which is
+ * keyed by DID while staking is keyed by stash address, so the join runs
+ * through on-chain identity:
  *
  *     stash -> DID (chain) -> name (registry) -> truncated address (fallback)
  *
- * The pipeline resolves this and bakes the result into `operators.json`, so the
- * client makes no extra request and we hold a snapshot if the upstream file
- * ever moves or disappears.
+ * Baked into `operators.json` at ingest, so the client makes no extra request
+ * and we hold a snapshot if the upstream file ever moves.
  */
 
 import {
@@ -34,11 +29,9 @@ export function truncateAddress(address: string): string {
 }
 
 /**
- * Fetches the upstream DID -> name map.
- *
- * Returns null on any failure. A naming service being down must never fail an
- * ingestion run — the caller falls back to the previous registry, and stale
- * names are vastly preferable to no data.
+ * Fetches the upstream DID -> name map. Null on any failure: a naming service
+ * being down must never fail an ingestion run, and the caller falls back to the
+ * previous registry.
  */
 async function fetchUpstreamNames(): Promise<Map<string, string> | null> {
   try {
@@ -65,41 +58,23 @@ async function fetchUpstreamNames(): Promise<Map<string, string> | null> {
   }
 }
 
-/**
- * Numbers the nodes belonging to one identity: "Assetera 1", "Assetera 2".
- *
- * Most Polymesh operators run three nodes under a single DID, so without this
- * every chart legend would show the same name three times. Ordering is by
- * address so the numbering is stable across runs — otherwise a node could
- * silently swap labels between ingests.
- */
 export interface BuildRegistryOptions {
   api: ApiLike;
   store: DataStore;
-  /** Stash addresses seen in the eras just ingested. */
   /**
-   * Per-operator era span from this run's records.
-   *
-   * Per operator, not per run. This used to be a set of addresses plus the
-   * run's own `firstEra`/`lastEra`, which stamped the run's first era onto
-   * every operator in it — so an operator that joined at era 1700 during a
-   * run covering 1660-1749 was recorded as first seen at 1660. Harmless at 84
-   * eras and badly wrong once a 300-era backfill lands: every operator would
-   * claim to have been there from the start of the slice.
+   * Era span of each stash seen in the eras just ingested — per operator, not
+   * per run. Using the run's own `firstEra`/`lastEra` stamps the slice's start
+   * onto every operator in it, so a long backfill would have them all claiming
+   * to have been there from the beginning.
    */
   seen: ReadonlyMap<string, { firstEra: number; lastEra: number }>;
 }
 
 /**
- * Per-operator era spans read back from every chunk on disk.
- *
- * The registry used to be merge-only: each run contributed its own bounds and
- * `Math.min`/`Math.max` accumulated them. That preserves history for eras no
- * longer in state, which is the point — but it also means a wrong value can
- * never be corrected, because a too-low `firstSeenEra` always wins the min.
- * Deriving from the chunks makes the stored range self-healing, and merging
- * the result with the existing registry still preserves anything known from
- * eras that were never stored.
+ * Per-operator era spans read back from every chunk on disk, so the stored
+ * range is self-healing. Accumulating each run's bounds with `Math.min`/`max`
+ * instead would mean a wrong value could never be corrected. Merging the result
+ * with the existing registry still preserves eras that were never stored.
  */
 export async function spansFromChunks(
   store: Pick<DataStore, 'readChunk'>,

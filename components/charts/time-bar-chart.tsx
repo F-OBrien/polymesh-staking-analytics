@@ -10,20 +10,12 @@ import { ChartFrame, useChartHeight } from './chart-frame';
 /**
  * Bars over a time axis, with an optional companion panel below.
  *
- * The chart kit had no way to draw a bar at all — axes, a banded line, an xy
- * line, a sparkline and a table, and nothing else. That gap is why five charts
- * in the §8.3 catalogue were never built and why "rewards per era", specced as
- * a bar, shipped as a line.
+ * Two panels, never two y-axes: a per-period amount and its running total
+ * differ by orders of magnitude, and §8.1 rule 2 requires two stacked charts
+ * sharing an x-axis. Dual axes let any correlation be manufactured by rescaling.
  *
- * **Two panels, never two y-axes.** A per-period amount and its running total
- * differ by orders of magnitude, and §8.1 rule 2 is explicit: two measures of
- * different scale get two stacked charts sharing an x-axis, not a second axis.
- * Dual axes let any correlation be manufactured by rescaling, which is exactly
- * what this site exists not to do.
- *
- * The bars are the primary series and the companion is a line, because a
- * cumulative total is a level rather than a set of discrete events — drawing it
- * as bars would imply each period contained the whole running sum.
+ * The bars are the primary series and the companion is a line, since a
+ * cumulative total is a level rather than a set of discrete events.
  */
 
 /** A day, for the degenerate single-bucket case where no gap can be measured. */
@@ -144,12 +136,10 @@ export function TimeBarChart({
 }
 
 /**
- * The plot itself, as a child of the frame rather than a sibling of it.
- *
- * The nesting is load-bearing: `useChartHeight` reads a context the frame
- * provides *around its children*, so calling it in the component that renders
- * `<ChartFrame>` sits above the provider and quietly returns the collapsed
- * height. Expanding then made this chart wider and no taller.
+ * The plot, as a child of the frame rather than a sibling. The nesting is
+ * load-bearing: `useChartHeight` reads a context the frame provides *around its
+ * children*, so calling it in the component that renders `<ChartFrame>` sits
+ * above the provider and silently returns the collapsed height.
  */
 function TimeBarPlot({
   times,
@@ -171,8 +161,7 @@ function TimeBarPlot({
   const height = useChartHeight(requestedHeight);
   const width = measuredWidth ?? 0;
 
-  // The companion takes the lower third: it is context for the bars, not a
-  // peer, and a running total needs less room to read than a set of events.
+  // The companion takes the lower third — context for the bars, not a peer.
   const companionHeight = companion ? Math.round(height * 0.34) + COMPANION_LABEL_ROOM : 0;
   const barsHeight = height - companionHeight;
 
@@ -182,14 +171,9 @@ function TimeBarPlot({
     // No right gutter: nothing is direct-labelled here, and the bars should
     // use the full width.
     right: 16,
-    /**
-     * Room for the zero tick even when the x axis lives on the panel below.
-     *
-     * This was 4px, which is less than half the height of the "0" label —
-     * `YAxis` centres each tick on its value, so the bottom half of that label
-     * fell outside the plot and the bars drew straight over it. The companion
-     * panel's own axis label then collided with it from below.
-     */
+    // Room for the zero tick even though the x axis lives on the panel below:
+    // `YAxis` centres each label on its value, so anything less than half the
+    // label's height lets the bars draw over it.
     bottom: companion ? BASELINE_LABEL_ROOM : margin.bottom,
   });
   const companionBox = plotBox(width, companionHeight, {
@@ -201,11 +185,8 @@ function TimeBarPlot({
   });
 
   /**
-   * The bucket width in seconds, from the *median* gap.
-   *
-   * Median rather than mean because a reward history commonly has one enormous
-   * gap — an account that stopped staking for a year — and a mean would size
-   * every bar for that outlier.
+   * The bucket width in seconds, from the median gap — a mean would size every
+   * bar for the one enormous gap a reward history commonly has.
    */
   const stepSeconds = useMemo(() => {
     if (times.length < 2) return DEFAULT_STEP_SECONDS;
@@ -218,14 +199,9 @@ function TimeBarPlot({
   }, [times]);
 
   /**
-   * Half a bucket of padding at each end.
-   *
-   * A time scale maps the first and last values to the very edges of the plot,
-   * which is right for a line — its endpoints are points — and wrong for bars,
-   * which are *bands*. Centred on the edge, the first and last bars had half
-   * their width outside the plot area and were visibly sliced in two. Widening
-   * the domain by half a bucket gives every bar a full slot, and leaves the
-   * same half-gap margin at each end that sits between any two bars.
+   * Half a bucket of padding at each end. A time scale maps the first and last
+   * values to the plot's edges, which is right for a line's endpoints and wrong
+   * for bars, which are bands — centred on the edge they are sliced in half.
    */
   const x = useMemo(() => {
     const first = times[0] ?? 0;
@@ -248,11 +224,9 @@ function TimeBarPlot({
   const xs = useMemo(() => times.map((t) => x(new Date(t * 1000))), [times, x]);
 
   /**
-   * Bar width from the bucket's own width in pixels.
-   *
-   * Derived from the same step the domain padding uses, so the gap between two
-   * bars and the gap at each end of the plot stay consistent. Capped at 40px so
-   * a two-bucket history does not render as two enormous slabs.
+   * Bar width from the bucket's own width in pixels — the same step the domain
+   * padding uses, so the gaps between bars and at each end stay consistent.
+   * Capped so a two-bucket history is not two enormous slabs.
    */
   const barWidth = useMemo(() => {
     const first = times[0] ?? 0;

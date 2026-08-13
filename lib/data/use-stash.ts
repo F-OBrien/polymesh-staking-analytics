@@ -18,17 +18,14 @@ import type { StakeAllocation } from '@/lib/chain/allocation';
 /**
  * The stash under inspection, and everything hanging off it.
  *
- * **Nothing here loads `@polkadot/api` until a stash exists.** The queries are
- * `enabled`-gated on the address, and the chain modules are reached through
- * `await import()` inside the query function rather than at module scope — so
- * arriving at `/my-staking` disconnected costs nothing beyond the page itself.
- * That is a Phase 7 acceptance criterion and `npm run assert:lazy` checks it
+ * Nothing here loads `@polkadot/api` until a stash exists: queries are
+ * `enabled`-gated on the address and chain modules are reached through
+ * `await import()` inside the query function, never at module scope, so
+ * arriving disconnected costs nothing. `npm run assert:lazy` checks this
  * against the built output.
  *
- * The address lives in the URL (`?stash=`), which makes an inspected position
- * linkable and means a wallet connection survives a refresh without anything
- * being persisted. Storing a wallet address in localStorage would be a small
- * privacy leak for no benefit.
+ * The address lives in `?stash=`, so a position is linkable and survives a
+ * refresh without persisting a wallet address anywhere.
  */
 
 /** The address being inspected, held in `?stash=`. */
@@ -56,12 +53,10 @@ export interface WalletState {
 }
 
 /**
- * Wallet connection, kept out of TanStack Query on purpose.
- *
- * Connecting is a user-initiated action with a permission prompt attached, not
- * a cacheable read. Modelling it as a query invites retries and background
- * refetches, each of which would re-open an extension dialog — the sort of
- * behaviour that makes people uninstall a site's permissions.
+ * Wallet connection, deliberately outside TanStack Query: connecting is a
+ * user-initiated action with a permission prompt, not a cacheable read, and a
+ * query's retries and background refetches would each re-open the extension
+ * dialog.
  */
 export function useWallet() {
   const [state, setState] = useState<WalletState>({
@@ -94,11 +89,9 @@ export function useWallet() {
 }
 
 /**
- * The stash's on-chain position.
- *
- * `staleTime` is a minute: bonding changes are user-initiated and rare, and
- * this costs a websocket dial. Live (tier 4) is what makes it immediate for
- * anyone who wants that.
+ * The stash's on-chain position. A minute of staleness: bonding changes are
+ * user-initiated and rare, and this costs a websocket dial. Live makes it
+ * immediate for anyone who wants that.
  */
 export function useStashPosition(
   stash: string,
@@ -108,15 +101,13 @@ export function useStashPosition(
     queryKey: ['stash', stash, activeEra],
     enabled: stash !== '' && activeEra != null,
     staleTime: 60_000,
-    // No automatic retry. The dial already waits 12s before failing, so even
-    // one retry is 24 seconds of skeleton before the user is told anything —
-    // and the error state offers a Try again button, which is both faster and
-    // honest about what is happening. Measured: with retries the page sat in a
-    // loading state for over 22 seconds against an unreachable node.
+    // No retry: the dial already waits 12s, so even one more is 24 seconds of
+    // skeleton before the user is told anything. The error state's Try again
+    // button is faster and more honest.
     retry: false,
     queryFn: async () => {
-      // Imported here, not at module scope: this is the boundary the whole
-      // lazy-loading arrangement rests on.
+      // Imported here, not at module scope — the boundary the lazy-loading
+      // arrangement rests on.
       const [{ acquireApi }, { readStashPosition }] = await Promise.all([
         import('@/lib/chain/browser-api'),
         import('@/lib/chain/stash'),
@@ -134,16 +125,13 @@ export function useStashPosition(
 }
 
 /**
- * Where this stash's stake actually sits this era, and last.
+ * Where this stash's stake actually sits this era, and last. Separate from
+ * `useStashPosition` because it depends on that query's nominations and is the
+ * more expensive of the two.
  *
- * A second query rather than part of `useStashPosition`, because it depends on
- * that one's nominations and because it is the more expensive of the two.
- *
- * **Deliberately not gated on having nominations.** Two groups of bonded
- * addresses nominate nothing and still have stake at work: a *chilled*
- * nominator, whose exposure stands until the next election, and an *operator*,
- * whose own self-stake is exposed directly. Skipping the read for either would
- * report a working bond as idle.
+ * Not gated on having nominations: a chilled nominator's exposure stands until
+ * the next election, and an operator's self-stake is exposed directly, so
+ * skipping the read would report a working bond as idle.
  */
 export function useStakeAllocation(
   stash: string,
@@ -151,12 +139,11 @@ export function useStakeAllocation(
   targets: readonly string[],
 ): UseQueryResult<StakeAllocation> {
   return useQuery({
-    // Targets are in the key: a nomination change alters the answer, and the
-    // list is short enough to key on directly.
+    // Targets are in the key — a nomination change alters the answer.
     queryKey: ['allocation', stash, activeEra, targets.join(',')],
     enabled: stash !== '' && activeEra != null,
-    // Exposure is fixed for the duration of an era, so this is immutable until
-    // the next election. A minute is simply the granularity of noticing.
+    // Exposure is fixed for an era, so this is immutable until the next
+    // election; a minute is just the granularity of noticing.
     staleTime: 60_000,
     retry: false,
     queryFn: async () => {
@@ -182,15 +169,9 @@ export interface RewardHistory {
 }
 
 /**
- * Lifetime total and payout count, in one request.
- *
- * Split out from the detail walk deliberately. The endpoint caps a page at 100
- * rows — a server limit, not a setting — so an account with 11,858 payouts is
- * 119 sequential round trips, and every one of them was being spent just to
- * print a total the indexer will compute itself. This asks it to.
- *
- * Verified against a full walk on a real stash: identical count and sum, one
- * request instead of eighteen.
+ * Lifetime total and payout count, in one request. Split from the detail walk
+ * because the endpoint caps a page at 100 rows, so a long history is dozens of
+ * sequential round trips to print a total the indexer will compute itself.
  */
 export function useRewardTotals(stash: string): UseQueryResult<RewardTotals> {
   return useQuery({
@@ -203,33 +184,30 @@ export function useRewardTotals(stash: string): UseQueryResult<RewardTotals> {
 }
 
 /**
- * Reward history from the indexer, event by event.
+ * Reward history from the indexer, event by event. Plain `fetch` with no
+ * Polkadot dependency, so a pasted address shows its payout history without any
+ * of the chain stack loading.
  *
- * No Polkadot dependency at all — this is plain `fetch` — so a pasted address
- * shows its payout history without any of the chain stack loading. In practice
- * that means the most useful half of this page works at almost no cost.
- *
- * **`enabled` is a real choice, not a formality.** This is the expensive query;
- * `useRewardTotals` answers the headline questions for one request, so the walk
- * only runs when a reader asks for the chart or the CSV. Passing an era index
- * fills in which era each payout was earned in — without it, that column is
- * blank, because the indexer records a block and not an era.
+ * `enabled` is a real choice: this is the expensive query, and `useRewardTotals`
+ * answers the headline questions in one request, so the walk runs only when a
+ * reader asks for the chart or the CSV. Passing an era index fills in which era
+ * each payout was earned in — the indexer records a block, not an era.
  */
 export function useRewardHistory(
   stash: string,
   { enabled = true, eraIndex }: { enabled?: boolean; eraIndex?: EraIndex | undefined } = {},
 ): UseQueryResult<RewardHistory> {
   return useQuery({
-    // The era index is part of the key: the same events resolve to different
-    // era numbers once it loads, and a cached copy keyed only by stash would
-    // keep serving the version with a blank era column.
+    // The era index is in the key: the same events resolve to different era
+    // numbers once it loads, and a stash-only key would keep serving the
+    // version with a blank era column.
     queryKey: ['rewards', stash, eraIndex == null ? 'no-eras' : eraIndex.lastEra],
     enabled: enabled && stash !== '',
-    // Payouts land at most once an era; an hour is generous and the query can
-    // be dozens of sequential requests for a long-lived account.
+    // Payouts land at most once an era, and this can be dozens of sequential
+    // requests, so an hour is generous rather than stale.
     staleTime: 60 * 60_000,
-    // As above: a long history is many sequential requests, so retrying the
-    // whole walk three times turns one slow failure into a very slow one.
+    // Retrying the whole walk three times turns one slow failure into a very
+    // slow one.
     retry: 1,
     queryFn: ({ signal }) =>
       fetchRewards(stash, {

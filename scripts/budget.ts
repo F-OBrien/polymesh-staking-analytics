@@ -1,17 +1,9 @@
 /**
- * Per-route JavaScript budget check.
- *
- * Reads the exported HTML and gzips every script it references, which measures
- * the payload a browser actually fetches for a cold visit to that URL. That is
- * deliberately different from what `next build` prints: Turbopack reports chunk
- * sizes uncompressed and groups them by entry, so it can look reassuring while
- * a shared chunk quietly drags a charting library onto a page that never draws
- * a chart. This catches that; the build summary does not.
- *
- * Written after exactly that happened. `useSelectedOperators` imported the
- * palette cap from `banded-line-chart`, which put d3-scale and d3-shape (17.1
- * KB gzip) on the critical path of `/operators` — a page whose charts are all
- * behind `next/dynamic`. Nothing in the build output said so.
+ * Per-route JavaScript budget check: reads the exported HTML and gzips every
+ * script it references, measuring what a browser actually fetches for a cold
+ * visit. Deliberately different from what `next build` prints, which reports
+ * chunks uncompressed and grouped by entry — so a shared chunk can drag a
+ * charting library onto a page that never draws one and the summary looks fine.
  *
  * Usage: `npm run build && npm run budget`. Exits non-zero on a breach, so CI
  * can gate on it.
@@ -27,15 +19,9 @@ const OUT_DIR = 'out';
 const BUDGET_BYTES = 200 * 1024;
 
 /**
- * Routes the budget does not apply to, with the reason.
- *
- * Keep this list short and justified. An exemption is a promise that the route
- * is not on a user's path, not a way to make a red number go away.
- *
- * Currently empty. `/kitchen-sink` was exempt while the measurement wrongly
- * counted the `nomodule` polyfill bundle; once that was fixed it came in under
- * budget like everything else, and an exemption nothing needs would only hide
- * the next regression.
+ * Routes the budget does not apply to, with the reason. Keep this short and
+ * justified: an exemption is a promise that the route is not on a user's path,
+ * not a way to make a red number go away. Currently empty.
  */
 const EXEMPT: Record<string, string> = {};
 
@@ -52,21 +38,15 @@ async function* htmlFiles(dir: string): AsyncGenerator<string> {
 }
 
 /**
- * Every script URL a **modern** browser actually downloads for this document.
+ * Every script URL a *modern* browser actually downloads for this document —
+ * both `<script src>` tags and the bare strings in the Turbopack bootstrap
+ * array, which are fetched just as eagerly.
  *
- * Both the `<script src>` tags and the bare strings in the Turbopack bootstrap
- * array, since the latter are fetched just as eagerly despite not being tags.
- *
- * `nomodule` scripts are excluded, and that exclusion is the whole reason this
- * function is more than one regex. Next emits a ~39 KB gzip core-js polyfill
- * bundle tagged `noModule`, which every browser that supports ES modules skips
- * entirely — every browser this site targets. Counting it inflated every route
- * by the same 39 KB and made five routes look marginally over budget when none
- * of them were. Measuring the wrong bytes is worse than not measuring: it
- * sends you optimising things that were never on the wire.
- *
- * Excluded by URL rather than by skipping the tag, because the same file is
- * also listed in the preload links and the bootstrap array.
+ * `nomodule` scripts are excluded, which is why this is more than one regex:
+ * Next emits a ~39 KB gzip core-js polyfill bundle that every browser this site
+ * targets skips entirely, and counting it inflates every route alike. Excluded
+ * by URL rather than by tag, since the same file also appears in the preload
+ * links and the bootstrap array.
  */
 function scriptRefs(html: string): Set<string> {
   const refs = new Set<string>();
@@ -119,10 +99,9 @@ async function main(): Promise<void> {
     const refs = scriptRefs(html);
 
     for (const ref of refs) {
-      // Strip the basePath: refs are absolute URLs, `out/` is its root.
-      // Read from config rather than written out again — a second copy of the
-      // base path goes stale silently, and the failure mode is every script
-      // resolving to nothing and the route reporting 0 KB.
+      // Strip the basePath: refs are absolute URLs, `out/` is its root. Read
+      // from config rather than duplicated — a stale second copy resolves
+      // every script to nothing and reports the route at 0 KB.
       const path = join(OUT_DIR, stripBasePath(ref));
       try {
         await stat(path);
@@ -160,8 +139,8 @@ async function main(): Promise<void> {
   }
 
   // The floor every route pays: framework, app shell, query client, router.
-  // Worth printing, because a rise here moves every number above it at once and
-  // is otherwise easy to misread as a page having grown.
+  // Printed because a rise here moves every number at once, which is otherwise
+  // easy to misread as one page having grown.
   const floor = routes.at(-1);
   if (floor) console.log(`\nShared floor: ${kb(floor.bytes).trim()} (${floor.route})`);
 

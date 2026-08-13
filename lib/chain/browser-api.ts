@@ -4,22 +4,15 @@ import type { ApiLike } from './compat';
  * The browser's connection to the chain — lazily created, reference-counted,
  * and torn down when nothing needs it.
  *
- * Three separate features want a socket: connecting a wallet, inspecting a
- * pasted stash, and the Live toggle. Each opening its own would mean up to
- * three connections and three copies of the metadata, and — worse — turning
- * Live off would not actually close anything if a wallet were also connected.
+ * Three features want a socket (wallet, stash inspection, Live), so callers
+ * take a lease on one shared connection rather than opening their own. It opens
+ * on the first lease and closes when the last is released, which makes
+ * "disabling Live tears down every subscription" a property of the design.
  *
- * So there is exactly one connection, and callers `acquire()` a lease on it.
- * The socket opens on the first lease and closes when the last one is released.
- * That makes "disabling Live tears down every subscription" a property of the
- * design rather than something each caller has to remember.
- *
- * **`@polkadot/api` is imported dynamically and nowhere else in client code.**
- * The whole performance argument depends on it: statically imported it is
- * megabytes before any application code, which is what the previous app
- * shipped to every visitor whether they connected a wallet or not. The lint
- * rule in `eslint.config.mjs` enforces this, and `npm run assert:lazy` checks
- * the built output rather than trusting the rule.
+ * `@polkadot/api` is imported dynamically and nowhere else in client code —
+ * statically it is megabytes ahead of any application code. The lint rule in
+ * `eslint.config.mjs` enforces this and `npm run assert:lazy` checks the built
+ * output rather than trusting the rule.
  */
 
 export interface ApiLease {
@@ -43,23 +36,13 @@ interface Connection {
 let current: Connection | null = null;
 
 /**
- * The real factory. Separate from `connect()` in `lib/chain/connect.ts`, which
- * is tuned for the pipeline: long timeouts, aggressive retries and console
- * logging are right for a scheduled job and wrong in front of a user, who would
- * rather be told it failed than wait 45 seconds in silence.
- */
-/**
- * How long to wait for the first connection before giving up.
+ * How long to wait for the first connection before giving up. There must be a
+ * bound: `WsProvider` auto-reconnects by default, so the initial
+ * `ApiPromise.create` never rejects against an unreachable endpoint — it
+ * retries forever while the UI shows a skeleton.
  *
- * There must be a bound, and finding out why cost a screenshot. `WsProvider`
- * auto-reconnects by default, which is right for a transient drop mid-session —
- * but it means the *initial* `ApiPromise.create` never rejects when the
- * endpoint is unreachable. It simply retries forever behind the scenes while
- * the UI shows a skeleton, which is precisely the "spinner turning forever with
- * no message" failure this rebuild exists to remove.
- *
- * Shorter than the pipeline's 45s: a scheduled job can afford to wait, a person
- * looking at a page cannot.
+ * Shorter than the pipeline's timeout in `lib/chain/connect.ts`, which is tuned
+ * for a scheduled job that can afford to wait.
  */
 const CONNECT_TIMEOUT_MS = 12_000;
 
@@ -70,9 +53,8 @@ const defaultFactory: ApiFactory = async (endpoint) => {
     ? P
     : never;
 
-  // Auto-reconnect left on, so a drop mid-session heals without the user doing
-  // anything; the timeout below covers the initial dial that it would otherwise
-  // retry silently and indefinitely.
+  // Auto-reconnect left on so a mid-session drop heals by itself; the timeout
+  // covers the initial dial it would otherwise retry silently forever.
   const provider = new WsProvider(endpoint);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -100,7 +82,7 @@ const defaultFactory: ApiFactory = async (endpoint) => {
     };
   } catch (error) {
     // Release the socket, or the provider keeps retrying in the background
-    // forever after we have already reported failure.
+    // after we have already reported failure.
     await provider.disconnect().catch(() => undefined);
     throw error;
   } finally {
@@ -116,11 +98,9 @@ export function setApiFactory(next: ApiFactory | null): void {
 }
 
 /**
- * Takes a lease on the shared connection, opening it if necessary.
- *
- * A failed dial does not leave a broken connection cached: the entry is cleared
- * so the next attempt genuinely retries rather than re-awaiting a rejected
- * promise forever.
+ * Takes a lease on the shared connection, opening it if necessary. A failed
+ * dial clears the cached entry, so the next attempt genuinely retries rather
+ * than re-awaiting a rejected promise.
  */
 export async function acquireApi(endpoint: string): Promise<ApiLease> {
   // An endpoint change means a different chain; drop the old one rather than
@@ -146,10 +126,9 @@ export async function acquireApi(endpoint: string): Promise<ApiLease> {
   const connection = current;
   connection.leases += 1;
 
-  // Idempotency has to be per *lease*, not per connection: a shared guard on
-  // the counter stops it going negative but still lets one caller releasing
-  // three times decrement away two other callers' leases and close the socket
-  // underneath them.
+  // Per *lease*, not per connection: a shared guard on the counter stops it
+  // going negative but still lets one caller releasing three times decrement
+  // away two other callers' leases and close the socket underneath them.
   let released = false;
   const release = () => {
     if (released) return;

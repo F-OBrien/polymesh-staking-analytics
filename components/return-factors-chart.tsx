@@ -15,32 +15,22 @@ import type { StitchedSeries } from '@/lib/data/series';
 import type { OperatorStatus } from '@/lib/schemas/data';
 
 /**
- * Why each operator paid what it did.
- *
- * The chart above this one says how much a nominator earned; this says what
- * made it so. The return decomposes exactly into three factors — blocks
- * produced, commission charged, and the stake the reward was shared with — and
- * a logarithmic-mean split turns that multiplicative identity into parts that
+ * Why each operator paid what it did — the chart above says how much, this says
+ * what made it so. The return decomposes exactly into blocks produced,
+ * commission charged and the stake the reward was shared with, and a
+ * logarithmic-mean split turns that multiplicative identity into parts that
  * *add*, so the bars are an attribution rather than an illustration.
  *
- * **The order is a control, not a convention.** On the two charts above it, the
- * sort is self-evident: they plot one value per operator and sort by it, so the
- * bars descend and nobody has to be told. This plots three values and sorts by
- * a fourth, so nothing visibly descends and the order reads as arbitrary — a
- * reviewer's first question, and a fair one. Naming it in a control answers it,
- * and sorting by any single factor makes that band descend monotonically, which
- * answers it again without reading anything.
+ * The order is a control rather than a convention: this plots three values and
+ * sorts by a fourth, so unlike the single-value charts above it nothing
+ * visibly descends and the order would otherwise read as arbitrary.
  *
- * **Sorted by what persists, not by what was earned.** Splitting eras 1600–1750
- * in half, production repeats at r = 0.618 and commission at r = 0.997, while
- * the stake advantage manages r = 0.288 and mean-reverts at r = −0.973 — an
- * operator is under-staked only until the election rebalances or nominators
- * notice, and a nominator arriving to collect that advantage is part of what
- * erases it. It is also the widest of the three, so ranking on the total would
- * sort the field mostly by the one term that will not be there next month.
- * Ordering by production × commission puts the operators whose advantage is
- * theirs at the top, and the stake band is drawn at half weight so a tall bar
- * built from it cannot be mistaken for a durable one.
+ * It defaults to what persists, not what was earned. Across eras 1600–1750,
+ * commission repeats at r = 0.997 and production at r = 0.618, while the stake
+ * advantage manages r = 0.288 and mean-reverts at r = −0.973 — and it is the
+ * widest of the three, so ranking on the total sorts the field mostly by the
+ * term that will not be there next month. The stake band is drawn at half
+ * weight for the same reason.
  */
 
 /** The colours, in stacking order. Stake last so it reads as the addendum. */
@@ -51,10 +41,8 @@ const FACTORS = [
 ] as const;
 
 /**
- * How the field is ordered. `durable` is the default for the reason above: it
- * puts the operators whose advantage is their own at the front. `net` aligns
- * this chart bar-for-bar with the return chart above it, which is the ordering
- * to pick when comparing the two.
+ * How the field is ordered. `durable` is the default, per the note above; `net`
+ * aligns this chart bar-for-bar with the return chart, for comparing the two.
  */
 const SORTS = [
   { key: 'durable', label: 'What lasts', describe: 'the part of the return that lasts' },
@@ -105,17 +93,12 @@ export function ReturnFactorsChart({
   const items = useMemo<(ContributionItem & { status: OperatorStatus })[]>(() => {
     if (!summary || summary.records.length === 0) return [];
 
-    /**
-     * Each factor is centred on the field's own average of it, so a bar reads
-     * as "how this operator differed", not "that Polymesh charges commission".
-     * Uncentred, the commission band is about −2.2 points on every single bar
-     * and tells the reader nothing they cannot read once.
-     *
-     * The mean is what makes it exact. Summing the centred parts gives each
-     * operator's excess over the field measured across its *own* eras — which
-     * is also the fairer comparison, since it does not charge an operator for
-     * having been present only while the network happened to pay less.
-     */
+    // Each factor is centred on the field's average of it, so a bar reads as
+    // "how this operator differed" rather than "Polymesh charges commission".
+    // Summing the centred parts gives each operator's excess over the field
+    // across its *own* eras, which is also the fairer comparison — it does not
+    // charge an operator for having been present only while the network paid
+    // less.
     const mean = (pick: (r: ReturnRecord) => number) =>
       summary.records.reduce((total, r) => total + pick(r), 0) / summary.records.length;
     const centre = {
@@ -252,12 +235,9 @@ export function ReturnFactorsChart({
 }
 
 /**
- * The quantity the field is ordered by.
- *
- * Reads the *drawn* segment values rather than the record behind them, so
- * sorting by a factor orders the bars by exactly the band the reader sees
- * descending — which is what makes the order self-evident without the control
- * having to be read.
+ * The quantity the field is ordered by. Reads the *drawn* segment values rather
+ * than the record behind them, so sorting by a factor makes exactly the band
+ * the reader sees descend monotonically.
  */
 function sortValue(item: ContributionItem & { durable: number }, sort: FactorSort): number {
   if (sort === 'durable') return item.durable;

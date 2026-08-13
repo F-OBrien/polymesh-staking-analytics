@@ -2,33 +2,25 @@ import { graphql, INDEXER_PAGE_SIZE, type GraphQlOptions } from './client';
 import type { OffenceReport } from '@/lib/schemas/data';
 
 /**
- * Offences reported against validators, from the indexer.
+ * Offences reported against validators, from the indexer — the only record of
+ * an operator misbehaving that exists anywhere. Chain state's
+ * `validatorSlashInEra` records what was *taken*, and Polymesh takes nothing,
+ * so a real outage leaves no trace there. The event fires anyway.
  *
- * The one record of an operator misbehaving that exists anywhere. Chain state
- * has `validatorSlashInEra`, which records what was *taken* — and Polymesh has
- * `slashingAllowedFor` set so that nothing is, so that storage is empty and a
- * real outage leaves no trace in it. The event fires anyway.
+ * Not `imOnline.SomeOffline`, despite being the obvious source and the one the
+ * block explorer shows: the indexer does not carry that module and returns zero
+ * rows. `staking.SlashReported` is the downstream record of the same offence,
+ * with the offender, fraction and era in the first three event args.
  *
- * **Why not `imOnline.SomeOffline`.** It is the obvious source and the one the
- * block explorer shows, and querying it against mainnet returns zero rows: the
- * indexer does not carry that module. `staking.SlashReported` is the downstream
- * record of the same offence and it is carried — 145 rows over the chain's life
- * — with the offender, the fraction and the era in the first three event args.
- *
- * Measured, the eras line up with what the chunks already show. The earliest
- * reports name Calico Capital in era 1130, and that operator's points columns
- * are null for eras 1131–1137. A later pair sits in era 1670, where its points
- * fell from ~3,200 to 180 before it vanished for 1671–1672. The event is
- * describing the outage the charts draw.
+ * Verified against the chunks: reported eras line up with the gaps and points
+ * collapses the charts already draw.
  */
 
 /**
  * `slash_era` — the era the offence happened in, not the era it was reported.
- *
- * They differ: reports arrive over the following sessions, so a single era's
- * offence produces several events spread across later blocks. Grouping on the
- * event's own era rather than the block's is what makes "era 1130" line up with
- * the gap the chunks show at 1131.
+ * Reports arrive over the following sessions, so one era's offence produces
+ * several events across later blocks; grouping on the event's own era rather
+ * than the block's is what lines these up with the gaps the chunks show.
  */
 interface RawEvent {
   /** Offending validator's stash, as a 32-byte hex public key. */
@@ -120,14 +112,11 @@ export function toOffence(node: RawEvent): RawOffence | null {
 }
 
 /**
- * Collapses raw events into one row per (operator, era).
+ * Collapses raw events into one row per (operator, era). An offence is reported
+ * once per session until the era ends, so consecutive blocks naming the same
+ * validator and era are one node being down, not several offences.
  *
- * One offence is reported once per session until the era ends, so mainnet's 145
- * events describe far fewer incidents — three consecutive blocks naming the same
- * validator and era in April are one node being down, not three offences. A
- * table of the raw events would triple-count every one of them.
- *
- * The kept fraction is the largest seen, and the kept block the earliest: the
+ * The kept fraction is the largest seen and the kept block the earliest: the
  * worst thing reported, and when it started.
  */
 export function groupOffences(
@@ -138,9 +127,8 @@ export function groupOffences(
 
   for (const report of raw) {
     const address = encode(report.publicKey);
-    // An offender we cannot name is dropped: an SS58 encoding failure means the
-    // arg was not an account, and a malformed address would join to nothing
-    // downstream anyway.
+    // An offender we cannot name is dropped: an SS58 encoding failure means
+    // the arg was not an account, and would join to nothing downstream.
     if (!address) continue;
 
     const key = `${address}:${report.era}`;

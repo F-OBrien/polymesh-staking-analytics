@@ -11,21 +11,19 @@ import { Legend, type LegendItem } from './legend';
  * A field of categories as bars diverging from a baseline, over a tolerance
  * band.
  *
- * The x axis carries no labels, and that is deliberate rather than a
- * limitation. Eighty-six operator names will not fit, and the question this
- * form answers is not "what is operator X?" but "what does the whole field look
- * like, and is anyone genuinely outside the noise?" — a shape question. Names
- * arrive on hover, on the pinned bars, and in the table view.
+ * The x axis carries no labels by design: eighty-six operator names will not
+ * fit, and the question is "what does the field look like, and is anyone
+ * genuinely outside the noise?" rather than "what is operator X?". Names arrive
+ * on hover, on pinned bars, and in the table view.
  *
- * **The band is the point.** A bar chart of a noisy measure invites the reader
- * to rank it, and ranking noise manufactures findings. Drawing the region that
- * chance alone explains — per category, since each has its own uncertainty —
- * makes "inside the band" the visible default and leaves only the genuine
- * outliers looking like outliers.
+ * The band is the point. A bar chart of a noisy measure invites ranking, and
+ * ranking noise manufactures findings; drawing the region chance alone explains
+ * — per category, since each has its own uncertainty — makes "inside the band"
+ * the visible default.
  *
- * Direction is encoded twice: above or below the baseline, and the diverging
- * colour pair. Colour is never the only cue (design doc §7.3), and the pair is
- * blue/crimson rather than red/green so it survives every form of CVD.
+ * Direction is encoded twice, by side and by the diverging colour pair, since
+ * colour is never the only cue (§7.3). Blue/crimson rather than red/green, so
+ * it survives every form of CVD.
  */
 
 export interface DeviationItem {
@@ -41,11 +39,9 @@ export interface DeviationItem {
   /** Palette colour when this category is pinned; overrides the direction hue. */
   highlight?: string | undefined;
   /**
-   * Draw this one back, as a category that is no longer a live choice.
-   *
-   * An operator that has left the set still belongs in a chart of what the
-   * range paid — the history is real — but it is not something a reader can act
-   * on, and at full strength it competes for attention with the ones that are.
+   * Draw this one back, as a category that is no longer a live choice. An
+   * operator that has left the set still belongs in a chart of what the range
+   * paid, but it is not something a reader can act on.
    */
   muted?: boolean | undefined;
 }
@@ -66,10 +62,9 @@ export interface DeviationChartProps {
   /** Column heading for `value` in the table view. */
   valueLabel?: string;
   /**
-   * The three verdicts, when "expected" is the wrong word for the baseline.
-   *
-   * A chart of what an operator *paid* has no expectation to be above or below
-   * — the baseline is the field, and the reading should say so.
+   * The three verdicts, for when "expected" is the wrong word for the baseline
+   * — a chart of what an operator *paid* is read against the field, not against
+   * an expectation.
    */
   readings?: Readings;
   height?: number;
@@ -188,15 +183,10 @@ export function DeviationChart({
 }
 
 /**
- * The plot itself, as a child of the frame rather than a sibling of it.
- *
- * That nesting is load-bearing, not tidiness. `useChartHeight` reads a context
- * the frame provides *around its children*, so a chart that calls the hook in
- * the same component that renders `<ChartFrame>` sits above the provider and
- * silently gets the collapsed height back. The symptom is a chart that grows
- * wider on expand and stays exactly as short as it was — which is precisely the
- * axis that needed the room. `BandedLineChart` was the only chart already
- * shaped this way, and the only one that expanded correctly.
+ * The plot, as a child of the frame rather than a sibling. The nesting is
+ * load-bearing: `useChartHeight` reads a context the frame provides *around its
+ * children*, so calling it in the component that renders `<ChartFrame>` sits
+ * above the provider and silently returns the collapsed height.
  */
 function DeviationPlot({
   items,
@@ -227,9 +217,9 @@ function DeviationPlot({
   const box = plotBox(width, height, { ...margin, right: 16, bottom: 12 });
 
   const y = useMemo(() => {
-    // The band edges join the domain so the band is never clipped: with a tight
-    // field the whole shaded region can sit inside the bars' own extent, and a
-    // half-drawn tolerance band reads as a data series.
+    // Band edges join the domain so the band is never clipped: with a tight
+    // field it can sit inside the bars' extent, and a half-drawn tolerance
+    // band reads as a data series.
     const values = items.map((item) => item.value);
     const lows = items.map((item) => item.low);
     const highs = items.map((item) => item.high);
@@ -241,11 +231,9 @@ function DeviationPlot({
   const centre = (i: number) => slot * (i + 0.5);
 
   /**
-   * The band as one polygon rather than a rectangle per category.
-   *
-   * Per-category rectangles would abut with hairline seams at fractional pixel
-   * boundaries, giving the band a striped texture that reads as data. A single
-   * path across the top edge and back along the bottom cannot.
+   * One polygon rather than a rectangle per category: abutting rectangles leave
+   * hairline seams at fractional pixel boundaries, giving the band a striped
+   * texture that reads as data.
    */
   const bandPath = useMemo(() => {
     if (items.length === 0 || slot <= 0) return '';
@@ -363,13 +351,11 @@ function DeviationPlot({
 }
 
 /**
- * The one-phrase verdict, shared by the hover readout and the table.
- *
- * Only three outcomes, and the middle one covers everything inside the band
- * regardless of which side of the baseline it falls. That is the whole
- * argument: a bar half a standard error above the line is not "slightly
- * better", it is indistinguishable, and giving it its own wording would
- * reintroduce the ranking of noise this chart exists to prevent.
+ * The one-phrase verdict, shared by the hover readout and the table. Three
+ * outcomes only, the middle covering everything inside the band whichever side
+ * of the baseline it falls: a bar half a standard error above the line is
+ * indistinguishable, not "slightly better", and wording it otherwise
+ * reintroduces the ranking of noise this chart prevents.
  */
 export interface Readings {
   above: string;

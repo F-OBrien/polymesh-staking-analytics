@@ -15,20 +15,14 @@ import {
 } from '@/components/operator-status-filter';
 
 /**
- * What a nominator actually earned from each operator.
+ * What a nominator actually earned from each operator: the same form, field and
+ * lottery band as the production chart beside it, with return after commission
+ * in place of points. Production is the better measure of an operator's work
+ * and the worse measure of the deal on offer.
  *
- * The block-production chart beside this one is the better measure of an
- * operator's *work*, and the worse measure of the deal on offer. Two operators
- * filling their slots identically pay differently once commission is taken, and
- * differently again if one is sharing the reward with more stake — the reward
- * is fixed by points, so extra stake does not grow it, only splits it further.
- *
- * So: the same form, the same field, the same lottery band — and the return
- * after commission in place of the points.
- *
- * Operators that have since left the set are drawn back rather than dropped.
- * What they paid over the range is real and belongs in the field, but they are
- * not a choice anyone can make today.
+ * Operators that have left the set are drawn back rather than dropped — what
+ * they paid is real and belongs in the field, but they are not a choice anyone
+ * can make today.
  */
 
 /** Two standard errors — the conventional line for "not just chance". */
@@ -83,8 +77,8 @@ export function ReturnsChart({
       const slot = slotOf.get(record.address);
       const margin = SIGMA * record.standardError;
 
-      // Whichever factor moved this operator furthest from the field, named in
-      // the hover. A bar on its own says how much; this says what happened.
+      // Whichever factor moved this operator furthest from the field. A bar
+      // says how much; this says what happened.
       const cause = dominantCause(record.contribution);
       const operatorStatus = statusOf(record.address);
 
@@ -96,8 +90,8 @@ export function ReturnsChart({
             ? `${nameOf(record.address)} (no longer running)`
             : nameOf(record.address),
         value: record.netApr,
-        // The band is centred on the field, not on the operator: it marks how
-        // far slot luck alone could have carried them from it.
+        // Centred on the field, not the operator: it marks how far slot luck
+        // alone could have carried them from it.
         low: summary.medianNetApr - margin,
         high: summary.medianNetApr + margin,
         muted: operatorStatus === 'inactive',
@@ -105,40 +99,29 @@ export function ReturnsChart({
           `elected for ${record.eras} of ${summary.eras} eras · ` +
           `${formatPercent(1 - record.keep, { decimals: 1 })} commission · ` +
           `mostly ${cause}`,
-        // Only the first eight pins get a colour; the palette is not cycled,
-        // and a ninth would repeat a hue already in use elsewhere.
+        // The palette is not cycled — a further pin would repeat a hue
+        // already in use.
         highlight: slot != null && slot < SERIES_TOKENS.length ? SERIES_TOKENS[slot] : undefined,
       };
     });
   }, [summary, selected, nameOf, statusOf]);
 
-  /**
-   * Filtered for display only — `summary` above still spans the whole field, so
-   * the baseline and the margin of error stay put as the selection changes.
-   */
+  // Filtered for display only: `summary` still spans the whole field, so the
+  // baseline and margin of error stay put as the selection changes.
   const pinned = useMemo(() => new Set(selected), [selected]);
   const visible = useMemo(() => filterOperators(items, status, pinned), [items, status, pinned]);
 
-  /**
-   * Pinned operators the filter is currently hiding.
-   *
-   * Surfaced next to the control because it is the one case where a missing bar
-   * is surprising — the reader chose those operators — and "Pinned only" is one
-   * selection away.
-   */
+  // Pinned operators the filter is hiding — surfaced beside the control,
+  // because a missing bar the reader themselves pinned is surprising.
   const hiddenPinned = useMemo(() => {
     const shown = new Set(visible.map((item) => item.id));
     return items.filter((item) => pinned.has(item.id) && !shown.has(item.id)).length;
   }, [items, pinned, visible]);
 
-  /**
-   * What the range can support, stated rather than implied.
-   *
-   * The band means the same thing it means on the production chart — how much
-   * of a gap slot luck explains — but it will usually contain far fewer bars,
-   * and that is the finding rather than a fault. Commission and stake are known
-   * exactly, so a difference they cause is real however narrow the band is.
-   */
+  // What the range can support, stated rather than implied. The band means what
+  // it does on the production chart but usually holds far fewer bars, which is
+  // the finding rather than a fault: commission and stake are known exactly, so
+  // a difference they cause is real however narrow the band is.
   const coverage = useMemo(() => {
     if (!summary || summary.records.length === 0) return undefined;
 

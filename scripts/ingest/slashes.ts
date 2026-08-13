@@ -1,24 +1,14 @@
 /**
- * Slash ingestion.
+ * Slash ingestion. Rebuilds `slashes.json` wholesale on every run — the source
+ * is one range read per era over the chain's history depth, and rebuilding is
+ * the only way to notice an era's slash record has been *pruned*.
  *
- * Rebuilds `slashes.json` wholesale on every run rather than accumulating
- * incrementally, because the source is small — one range read per era over the
- * chain's history depth, ~84 calls on mainnet — and because rebuilding is the
- * only way to notice that an era's slash record has been *pruned*.
- *
- * That pruning is the awkward part and it drives the whole design.
- * `validatorSlashInEra` lives alongside the rest of an era's staking state and
- * is cleared with it, so the chain can only tell us about roughly the last
- * three months. An era that falls out of the window leaves no trace, and an
- * empty result for it is indistinguishable from "nothing happened".
- *
- * Two consequences, both deliberate:
- *
- *  1. Previously-seen events are **retained** across runs even once the chain
- *     forgets them, so the file accumulates a longer record than state alone
- *     can provide. This is the only backfill available without an archive node.
- *  2. `prunedBefore` records where the chain's own knowledge stops, so the UI
- *     can distinguish "no offences" from "cannot say".
+ * Pruning drives the design: `validatorSlashInEra` is cleared with the rest of
+ * an era's staking state, so the chain covers roughly three months and an era
+ * that falls out leaves no trace distinguishable from "nothing happened". So
+ * previously-seen events are retained across runs, accumulating a longer record
+ * than state alone provides, and `prunedBefore` marks where the chain's own
+ * knowledge stops so the UI can say "cannot say" rather than "no offences".
  *
  *   npm run ingest:slashes
  */
@@ -45,19 +35,12 @@ const round = (value: number, dp = 6): number => Number(value.toFixed(dp));
 
 /**
  * Reads the previous `slashes.json`, tolerating a shape it no longer matches.
+ * The store refuses to build on a schema failure, which is right for chunks
+ * that are appended to; this file is regenerated wholesale every run, and the
+ * old copy only contributes events for eras the chain has since pruned.
  *
- * The store deliberately refuses to build on a file that fails its schema —
- * right for chunks, which are appended to and must never be corrupted. This
- * file is different: it is regenerated wholesale from chain state on every run,
- * and the only thing the old copy contributes is events for eras the chain has
- * since pruned.
- *
- * So a schema change here should cost a warning, not a failed run. Adding
- * `scope` did exactly that and aborted the pipeline until the file was deleted
- * by hand — not something to leave waiting for the next scheduled run.
- *
- * The trade is that a schema change loses pre-prune history. That is why it
- * warns loudly rather than passing over it quietly.
+ * So a schema change costs a warning rather than a failed run. The trade is
+ * that it loses pre-prune history, hence the loud warning.
  */
 async function readStoredLeniently(store: DataStore): Promise<Slashes | null> {
   try {
@@ -115,8 +98,8 @@ async function main(): Promise<void> {
       })),
     );
 
-    // Only eras that actually saw nominator losses are recorded — a row of
-    // zeroes per era would be most of the file and would say nothing.
+    // Only eras that saw nominator losses — a zero row per era would be most
+    // of the file and say nothing.
     const scannedTotals: NominatorSlashTotal[] = perEra
       .filter(({ nominators }) => nominators.count > 0)
       .map(({ era, nominators }) => ({
@@ -132,9 +115,8 @@ async function main(): Promise<void> {
       scannedFrom,
     );
 
-    // The record can reach further back than the chain does, thanks to previous
-    // runs. `firstEra` is how far our knowledge goes; `prunedBefore` is where
-    // the chain's stops.
+    // Previous runs let the record reach further back than the chain does:
+    // `firstEra` is how far our knowledge goes, `prunedBefore` the chain's.
     const firstEra = Math.min(scannedFrom, events[0]?.era ?? scannedFrom);
 
     const slashes: Slashes = {

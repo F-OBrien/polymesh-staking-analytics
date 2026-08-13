@@ -31,12 +31,9 @@ import {
 import type { NamedSeries } from '@/components/charts/banded-line-chart';
 
 /**
- * One operator, in depth.
- *
- * Entirely new: the previous app had a hundred operators and not a single page
- * for any of them. Every series is drawn against the field's distribution band,
- * because "12% return" means nothing without knowing what the others managed
- * that week.
+ * One operator, in depth. Every series is drawn against the field's
+ * distribution band — "12% return" means nothing without knowing what the
+ * others managed that week.
  */
 export function OperatorDetail({ address }: { address: string }) {
   const manifest = useManifest();
@@ -69,15 +66,10 @@ export function OperatorDetail({ address }: { address: string }) {
     };
   }, [series, columns, erasPerYear]);
 
-  /**
-   * How much of its own history this operator was in the set for.
-   *
-   * Over the range on screen, not over all time. Loading every chunk to answer
-   * it would cost 3.8 MB on a page that has already decided what it is showing,
-   * and the range control is how this site says "over what period" everywhere
-   * else. The tile names the era it counts from so the figure is never read as
-   * a lifetime record when it is not.
-   */
+  // How much of its own history this operator was in the set for, over the
+  // range on screen rather than all time — answering it over all time means
+  // loading every chunk. The tile names the era it counts from, so the figure
+  // is never read as a lifetime record.
   const availability = useMemo(
     () =>
       series && columns

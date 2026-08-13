@@ -1,22 +1,17 @@
 import { resolveIndexerUrl } from '@/config/networks';
 
 /**
- * The SubQuery indexer client.
+ * The SubQuery indexer client. Reward history is the one thing unavailable from
+ * chain state at any depth: an era's total is stored, but who was paid what
+ * exists only as `Rewarded` events.
  *
- * Reward history is the one thing genuinely unavailable from chain state:
- * `staking.erasValidatorReward` says what an era paid in total, but who was
- * paid what is only recoverable from `Rewarded` events. The indexer has them;
- * current state does not, at any depth.
+ * Plain `fetch` rather than a GraphQL client: two query shapes in total, no
+ * need for a normalised cache (TanStack Query has one), and it keeps this
+ * module free of any Polkadot dependency so a pasted address can show reward
+ * history without loading megabytes.
  *
- * Deliberately plain `fetch` against the GraphQL endpoint rather than a client
- * library. We issue two query shapes in total, we do not want a normalised
- * cache (TanStack Query already provides one), and every GraphQL client worth
- * the name costs more than the queries do. It also keeps this module free of
- * any Polkadot dependency, so `/my-staking` can show reward history for a
- * pasted address without loading megabytes.
- *
- * The endpoint is rate-limited by an amount nobody has documented (Q5), which
- * is why `fetchAllPages` is sequential rather than parallel.
+ * The endpoint's rate limit is undocumented, which is why `fetchAllPages` is
+ * sequential.
  */
 
 /** The endpoint caps a single response at 100 rows regardless of what we ask. */
@@ -49,12 +44,9 @@ interface GraphQlResponse<T> {
 }
 
 /**
- * One GraphQL request.
- *
- * GraphQL answers `200 OK` with an `errors` array for a failed query, so the
- * status code alone is not a success signal — checking only `response.ok` here
- * would surface a schema error as "no rewards found", which is the most
- * dangerous possible misreading on a page about someone's money.
+ * One GraphQL request. Note a failed query answers `200 OK` with an `errors`
+ * array, so `response.ok` alone is not a success signal — checking only that
+ * surfaces a schema error as "no rewards found".
  */
 export async function graphql<T>(
   query: string,
@@ -111,19 +103,13 @@ export async function graphql<T>(
 }
 
 /**
- * Parses an indexer timestamp to unix seconds.
+ * Parses an indexer timestamp to unix seconds. The endpoint emits UTC without a
+ * zone marker and `Date.parse` reads a bare datetime as *local* time, shifting
+ * every reward by hours — enough to land in the wrong era. `Z` is appended only
+ * when the string does not already carry a zone, or the result is `…ZZ`.
  *
- * The endpoint emits UTC without a zone marker (`2021-11-06T17:26:18`), and
- * `Date.parse` treats a bare datetime as *local* time — so on any machine east
- * or west of UTC every reward would shift by hours, which on a daily era is
- * enough to land in the wrong one. Appending `Z` fixes that, but only when the
- * string does not already carry a zone, or the result is `…ZZ` and `NaN`.
- *
- * Widths vary too — fractional seconds appear inconsistently — which is the
- * same reason this field must never be used as a sort key.
- *
- * Returns 0 for anything unreadable, matching the "one bad row must not blank
- * a whole history" rule the callers follow.
+ * Widths vary (fractional seconds appear inconsistently), which is also why
+ * this field must never be a sort key. Returns 0 for anything unreadable.
  */
 export function parseIndexerDate(datetime: string | null | undefined): number {
   if (!datetime) return 0;
@@ -138,16 +124,12 @@ export interface Page<T> {
 }
 
 /**
- * Walks every page of a paginated query.
- *
- * Sequential on purpose. The endpoint's rate limit is undocumented, and an
- * account with years of history is dozens of requests — firing them in
- * parallel is exactly the behaviour that gets an endpoint to start refusing,
- * and this runs in a user's browser where a 429 is visible.
+ * Walks every page of a paginated query, sequentially: the rate limit is
+ * undocumented, an account with years of history is dozens of requests, and
+ * this runs in a user's browser where a 429 is visible.
  *
  * `MAX_PAGES` bounds it. Hitting the cap returns what was collected and flags
- * it rather than throwing: a partial reward history is still useful, and the
- * caller can say so.
+ * it rather than throwing — a partial history is still useful.
  */
 export async function fetchAllPages<T>(
   loadPage: (offset: number) => Promise<Page<T>>,
@@ -158,8 +140,8 @@ export async function fetchAllPages<T>(
     const { nodes: batch, hasNextPage } = await loadPage(page * INDEXER_PAGE_SIZE);
     nodes.push(...batch);
 
-    // An empty page also ends the walk: an indexer that reports `hasNextPage`
-    // while returning nothing would otherwise loop to the cap for no reason.
+    // An empty page also ends the walk, or an indexer reporting `hasNextPage`
+    // while returning nothing loops to the cap.
     if (!hasNextPage || batch.length === 0) return { nodes, truncated: false };
   }
 

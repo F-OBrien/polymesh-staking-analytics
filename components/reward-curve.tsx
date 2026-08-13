@@ -10,50 +10,33 @@ import type { XySeries } from '@/components/charts/xy-line-chart';
 /**
  * How the return responds to how much of the supply is staked (C3).
  *
- * The one chart that explains *why* the APR everywhere else on this site is
- * what it is. Staking is a shared pot: the more POLYX staked, the more ways the
- * same annual issuance is divided, so an individual's return falls as
- * participation rises. Every other number here is an observation; this is the
- * mechanism behind them.
+ * The chart that explains why the APR everywhere else is what it is: staking is
+ * a shared pot, so the same annual issuance divided more ways means a lower
+ * individual return as participation rises.
  *
- * **It also corrects something the site was getting wrong.** Substrate's reward
- * curve has an "ideal" staking ratio — 70% here — and the home page described
- * the network as "below the 70% target, returns run high", which implies the
- * network is heading toward 70% and that returns taper smoothly as it gets
- * there. On Polymesh that is not what happens, because a *fixed* annual reward
- * of 140,000,000 POLYX caps inflation at about 10.7% of issuance:
- *
- *  - below ~50% staked, the curve governs and inflation climbs with it;
- *  - at ~50% the cap binds, and from there inflation is **flat**;
- *  - above that, APR is simply `cap ÷ ratio`, which falls much faster than the
- *    curve alone would suggest — 21.4% at 50%, 15.3% at 70%.
- *
- * So the meaningful threshold on Polymesh is the cap at ~50%, not the curve's
- * 70% ideal, which is never actually reached. Both are marked, because the
- * difference between them *is* the insight.
+ * The threshold that matters on Polymesh is the *cap*, not Substrate's 70%
+ * "ideal" ratio. A fixed 140,000,000 POLYX annual reward caps inflation at
+ * ~10.7% of issuance, so below ~50% staked the curve governs, at ~50% the cap
+ * binds and inflation goes flat, and above that APR is `cap ÷ ratio` — falling
+ * much faster than the curve suggests (21.4% at 50%, 15.3% at 70%). The ideal
+ * is never reached. Both are marked, because the difference is the insight.
  *
  * Nothing here is fetched: the curve is a pure function of the chain constants,
  * and only the current-position marker needs `latest.json`.
  */
 
 /**
- * One sample per whole percent of staking ratio.
- *
- * Finer sampling drew several points that rounded to the same x label, so the
- * table view showed repeated rows — "42%" twice with different returns. Whole
- * percents make every row distinct, and the exact crossover is marked anyway.
+ * One sample per whole percent of staking ratio. Finer sampling rounds several
+ * points to the same x label, so the table view repeats rows; the exact
+ * crossover is marked separately anyway.
  */
 const STEP = 0.01;
 
 /**
- * The curve starts here, not at zero.
- *
- * APR is `inflation ÷ ratio`, so as the staked share approaches zero it goes to
- * infinity — at 0.5% staked it is around 500%. Drawn from zero, that asymptote
- * sets the y scale and squashes the entire plausible range into a sliver along
- * the bottom: the chart becomes a picture of a hyperbola rather than of this
- * network. Ten percent is comfortably below anything Polymesh has seen and
- * keeps the axis at a readable ~45%.
+ * The curve starts here, not at zero. APR is `inflation ÷ ratio`, which goes to
+ * infinity as the staked share approaches zero — drawn from zero, that asymptote
+ * sets the y scale and the chart becomes a picture of a hyperbola rather than of
+ * this network. Comfortably below anything Polymesh has seen.
  */
 const MIN_RATIO = 0.1;
 
@@ -63,11 +46,9 @@ export function RewardCurve({ height = 300 }: { height?: number }) {
   const { x, series, cap, capRatio, currentRatio } = useMemo(() => {
     const ratioNow = latest.data?.stakingRatio ?? 0;
 
-    // The ceiling comes from the chain constant, not from today's `inflation`.
-    // Below the ceiling the curve and the capped value agree exactly, so the
-    // cap is invisible in the output until it binds — inferring it from
-    // `inflation` would draw an uncapped curve claiming 14% at 70% staked,
-    // when the real answer is 10.7%.
+    // From the chain constant, not today's `inflation`: below the ceiling the
+    // curve and the capped value agree exactly, so the cap is invisible in the
+    // output until it binds and cannot be inferred from a sample of it.
     const issuance = latest.data ? Number(BigInt(latest.data.totalIssuance)) : 0;
     const ceiling = latest.data ? Number(BigInt(latest.data.fixedYearlyReward)) : 0;
     const cap = issuance > 0 ? ceiling / issuance : REWARD_CURVE.iIdeal;
@@ -86,11 +67,10 @@ export function RewardCurve({ height = 300 }: { height?: number }) {
       apr.push(capped / ratio);
     }
 
-    // Where the curve reaches the cap *at today's supply*. This is not a fixed
-    // property of the chain: the ceiling is a fixed 140,000,000 POLYX a year,
-    // so as supply grows the ceiling shrinks as a *fraction* of issuance and
-    // this crossover slides down with it — 50% at 1.31bn supply, 38% at 1.6bn,
-    // 27% at 2bn. Marked as "at today's supply" for that reason.
+    // Where the curve reaches the cap *at today's supply* — not a fixed
+    // property of the chain. The ceiling is a fixed annual POLYX figure, so as
+    // supply grows it shrinks as a fraction of issuance and this crossover
+    // slides down with it. Labelled "at today's supply" for that reason.
     let lo = 0;
     let hi: number = REWARD_CURVE.xIdeal;
     for (let i = 0; i < 50; i += 1) {
@@ -162,10 +142,9 @@ export function RewardCurve({ height = 300 }: { height?: number }) {
 }
 
 /**
- * A plain-language reading of where the network sits on the curve.
- *
- * Kept beside the chart rather than inside it, so the page can state the
- * conclusion for anyone who does not read charts.
+ * A plain-language reading of where the network sits on the curve, beside the
+ * chart rather than inside it, so the conclusion is available to anyone who
+ * does not read charts.
  */
 export function RewardCurveReading() {
   const latest = useLatest();
@@ -179,15 +158,10 @@ export function RewardCurveReading() {
       ? Number(BigInt(latest.data.fixedYearlyReward)) / Number(BigInt(latest.data.totalIssuance))
       : Number.POSITIVE_INFINITY;
 
-  /**
-   * Which of the two rules is actually binding.
-   *
-   * Compare the *curve* against the *cap* — not the stored inflation against
-   * the curve. `latest.json` rounds inflation to six places, so that comparison
-   * was a rounded value against its own unrounded source: it read as "below the
-   * curve", i.e. capped, and the page confidently reported a ceiling that is
-   * not being reached. Measured: curve 9.4715%, cap 10.7111%.
-   */
+  // Which of the two rules is binding. Compare the curve against the cap, never
+  // the stored inflation against the curve: `latest.json` rounds inflation to
+  // six places, so that compares a rounded value against its own source and
+  // reports a ceiling that is not being reached.
   const capped = curveHere >= cap;
 
   return (

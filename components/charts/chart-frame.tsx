@@ -14,16 +14,13 @@ import { ErrorState, Skeleton } from '@/components/states';
 
 /**
  * The plot height a chart should draw at, given the height it asked for.
- *
  * Non-null only inside an expanded frame.
  *
- * **Call this from a component rendered as a `child` of `ChartFrame`, never
- * from the component that renders the frame.** The provider wraps `children`,
- * so a hook call in the parent sits *above* it and gets the collapsed height
- * back with no error — the chart then grows wider on expand and stays exactly
- * as short as before, which is usually the axis that needed the room. Three of
- * the four charts in the kit had this bug; each now has a `…Plot` component
- * whose only reason to exist is to be on the right side of this boundary.
+ * Call this from a component rendered as a `child` of `ChartFrame`, never from
+ * the component that renders the frame: the provider wraps `children`, so a
+ * hook call in the parent sits above it and silently gets the collapsed height.
+ * Each chart has a `…Plot` component to stay on the right side of that
+ * boundary.
  */
 const ExpandedHeightContext = createContext<number | null>(null);
 
@@ -32,24 +29,17 @@ export function useChartHeight(requested: number): number {
 }
 
 /**
- * The shell every chart is rendered inside.
+ * The shell every chart is rendered inside, so four things are structurally
+ * impossible to forget:
  *
- * It exists so that four things are structurally impossible to forget, rather
- * than left to each chart's author:
+ *  1. A stated question — the title says what the chart answers.
+ *  2. A table view, both the accessibility fallback and the relief required for
+ *     the light-mode series colours under 3:1 contrast (§7.3).
+ *  3. Loading, empty and error states at the chart's own height, so nothing
+ *     shifts when data lands. The CLS budget is zero.
+ *  4. Stated coverage, so a chart never implies data exists where it does not.
  *
- *  1. **A stated question.** The title says what the chart answers. If it does
- *     not answer one, it should not exist.
- *  2. **A table view.** Every chart's data is readable as a table, which is
- *     both the accessibility fallback and the relief required for the three
- *     light-mode series colours that sit under 3:1 contrast (design doc §7.3).
- *  3. **Loading, empty and error states** that reserve the same height as the
- *     chart, so nothing shifts when data lands. The CLS budget is zero.
- *  4. **Stated coverage.** A chart must never imply data exists where it does
- *     not — it says what range it is actually showing.
- *
- * Radix Tabs supplies the roving-tabindex and aria wiring for the toggle. That
- * is the class of work worth taking from a library: fiddly, well-specified, and
- * nothing to do with our visual identity.
+ * Radix Tabs supplies the roving-tabindex and aria wiring for the toggle.
  */
 
 export type ChartView = 'chart' | 'table';
@@ -93,12 +83,10 @@ export function ChartFrame({
   const descriptionId = useId();
 
   /**
-   * Expanded height, doubling as the open flag.
-   *
-   * A dense chart — eight operators over ninety eras — is legible at 2300px and
-   * a thicket at 900. Rather than a height control nobody would find, the whole
-   * frame moves into a modal that uses the viewport. Measured on open in the
-   * click handler rather than an effect, so opening costs one render.
+   * Expanded height, doubling as the open flag. A dense chart is a thicket at
+   * card width, so rather than a height control nobody would find, the frame
+   * moves into a modal that uses the viewport. Measured in the click handler
+   * rather than an effect, so opening costs one render.
    */
   const [expandedHeight, setExpandedHeight] = useState<number | null>(null);
   const expanded = expandedHeight != null;
@@ -107,7 +95,7 @@ export function ChartFrame({
   useEffect(() => {
     const element = dialogRef.current;
     if (!element) return;
-    // `showModal` — not the `open` attribute — is what puts the dialog in the
+    // `showModal`, not the `open` attribute: only it puts the dialog in the
     // top layer and brings the focus trap, inertness and Escape with it.
     if (expanded && !element.open) element.showModal();
     if (!expanded && element.open) element.close();
@@ -120,12 +108,10 @@ export function ChartFrame({
   const collapse = () => setExpandedHeight(null);
 
   const header = (
-    // Not `flex-wrap`. The coverage line varies in length with the range, the
-    // scale and whether a cap is in force, and wrapping let a longer one push
-    // the controls onto their own row — so the Expand and scale buttons moved
-    // around the card as the reader changed the very things those buttons
-    // control. `flex-1 min-w-0` lets the text column shrink and wrap inside
-    // itself instead, which keeps the controls anchored top-right.
+    // Not `flex-wrap`: the coverage line's length varies with the range and
+    // scale, and wrapping would move the controls around the card as the
+    // reader changes the very things those controls set. `flex-1 min-w-0` lets
+    // the text wrap inside itself and keeps the controls anchored top-right.
     <figcaption className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <h3 id={titleId} className="m-0 text-[17px] leading-6 font-semibold tracking-tight">
@@ -175,8 +161,8 @@ export function ChartFrame({
       {empty}
     </div>
   ) : (
-    // The chart is mounted in exactly one place at a time — inline or in the
-    // modal — so expanding never renders two copies of a heavy SVG.
+    // Mounted in one place at a time, inline or in the modal, so expanding
+    // never renders two copies of a heavy SVG.
     <ExpandedHeightContext.Provider value={expandedHeight}>
       <Tabs.Root defaultValue="chart" className="flex min-h-0 flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
@@ -243,14 +229,10 @@ export function ChartFrame({
           className="m-auto max-w-none rounded-[var(--radius-lg)] border p-0 backdrop:bg-black/60"
           style={{
             width: '96vw',
-            // Sized to content, not `92vh`: only the banded chart takes the
-            // extra height (via the context above), and a 300px curve floating
-            // in a full-height box looks broken.
-            //
+            // Sized to content: only the banded chart takes the extra height,
+            // and a short curve floating in a full-height box looks broken.
             // `fit-content` rather than `auto` — the UA stylesheet gives a
-            // modal dialog `inset: 0`, and `height: auto` against both a top
-            // and a bottom offset resolves to "fill", which stretched the box
-            // to the full viewport with 600px of dead space under the chart.
+            // modal dialog `inset: 0`, against which `auto` resolves to "fill".
             height: 'fit-content',
             maxHeight: '92vh',
             borderColor: 'var(--border)',

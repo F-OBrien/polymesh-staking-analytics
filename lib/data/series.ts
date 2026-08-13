@@ -3,26 +3,19 @@ import { median } from '@/lib/metrics/stats';
 import type { Chunk, NetworkSeries, OperatorSeries } from '@/lib/schemas/data';
 
 /**
- * Stitching chunks into a single continuous series.
+ * Stitching chunks into a single continuous series, so nothing above this layer
+ * needs to know a 90-era window spans three storage files.
  *
- * Chunks are storage units, not display units: a 90-era window spans three of
- * them, and no chart should have to know that. Everything above this layer
- * works with one flat, era-indexed dataset.
- *
- * The awkward part is that operators come and go, so chunk A may hold columns
- * for an operator that chunk B does not. Naively concatenating would misalign
- * every subsequent era for that operator — the class of bug that produces a
- * chart which looks plausible and is wrong. Columns are therefore rebuilt
+ * Operators come and go, so chunk A may hold columns for an operator chunk B
+ * does not. Concatenating naively would misalign every subsequent era for that
+ * operator — a chart that looks plausible and is wrong — so columns are rebuilt
  * against the merged era axis, padding absent stretches with `null`.
  */
 
 /**
- * Network columns as *stitched*, which is not the same as stored.
- *
- * A stored chunk always has a value for every era it lists, so
- * `NetworkSeriesSchema` is rightly non-nullable. A stitched range is different:
- * it can span an era no chunk covers, and that era has to carry `null` rather
- * than be dropped. See the note on the era axis below.
+ * Network columns as stitched, which is not the same as stored: a stored chunk
+ * always has a value for every era it lists, whereas a stitched range can span
+ * an era no chunk covers, which must carry `null` rather than be dropped.
  */
 export type StitchedNetwork = {
   [K in keyof NetworkSeries]: (number | null)[];
@@ -31,12 +24,9 @@ export type StitchedNetwork = {
 export interface StitchedSeries {
   /**
    * Every era in the range, contiguous — including ones no chunk covers.
-   *
-   * Contiguity is load-bearing. The axis is a *time* scale, so a skipped era
-   * leaves its neighbours at their true dates and the line simply stretches
-   * across the hole: no break, no marker, nothing to say a month of history is
-   * missing. Filling the hole with nulls makes it a gap in every series, which
-   * is what it is.
+   * Contiguity is load-bearing: the x axis is a time scale, so a skipped era
+   * just lets the line stretch across the hole with nothing to mark it, whereas
+   * a null-filled slot is a visible gap in every series.
    */
   eras: number[];
   eraStart: number[];
@@ -67,10 +57,9 @@ const OPERATOR_KEYS = [
 ] as const satisfies readonly (keyof OperatorSeries)[];
 
 /**
- * Merges chunks into one series, optionally clipped to an era range.
- *
- * Later chunks win on overlap, which matters when a re-fetched trailing chunk
- * is stitched alongside a cached copy of itself.
+ * Merges chunks into one series, optionally clipped to an era range. Later
+ * chunks win on overlap, for when a re-fetched trailing chunk is stitched
+ * alongside a cached copy of itself.
  */
 export function stitchChunks(
   chunks: readonly Chunk[],
@@ -86,9 +75,8 @@ export function stitchChunks(
   }
   const present = [...eraSet].sort((a, b) => a - b);
 
-  // The axis runs over every era between the ends, not only the ones we hold.
-  // See `StitchedSeries.eras`: skipping a missing era does not draw a gap, it
-  // draws a line straight across it.
+  // Every era between the ends, not only the ones held — see
+  // `StitchedSeries.eras`.
   const eras: number[] = [];
   const first = present[0];
   const last = present.at(-1);
@@ -98,9 +86,9 @@ export function stitchChunks(
   const indexOfEra = new Map(eras.map((era, i) => [era, i]));
 
   const eraStart = new Array<number>(eras.length).fill(0);
-  // Which slots a chunk actually supplied. A sentinel value cannot do this job:
-  // zero is a real Unix timestamp, and a test fixture starting at era 0 has a
-  // genuine `eraStart` of 0 — which a zero-means-unknown check then "fills in".
+  // Which slots a chunk actually supplied. A sentinel cannot do this job: zero
+  // is a real Unix timestamp, and a fixture starting at era 0 genuinely has an
+  // `eraStart` of 0, which a zero-means-unknown check would "fill in".
   const known = new Array<boolean>(eras.length).fill(false);
   const network = Object.fromEntries(
     NETWORK_KEYS.map((key) => [key, new Array<number | null>(eras.length).fill(null)]),
@@ -139,10 +127,9 @@ export function stitchChunks(
     }
   }
 
-  // A missing era has no recorded start, and leaving it at zero would place it
-  // at the epoch and drag the whole time axis back to 1970. Interpolating
-  // between the eras either side keeps the axis proportional; nothing is drawn
-  // at these positions anyway, since every column there is null.
+  // A missing era left at zero would sit at the epoch and drag the time axis
+  // back to 1970. Interpolating keeps the axis proportional, and nothing is
+  // drawn at these positions anyway since every column there is null.
   fillMissingEraStarts(eraStart, known);
 
   return { eras, eraStart, network, operators };
@@ -163,9 +150,9 @@ function fillMissingEraStarts(eraStart: number[], known: readonly boolean[]): vo
     previous = i;
   }
 
-  // A run of unknowns at either end has nothing to interpolate between, so it
-  // extends the nearest known era by a nominal day. Only reachable when a range
-  // clips outside every chunk, which the manifest should prevent.
+  // A run at either end has nothing to interpolate between, so it extends the
+  // nearest known era by a nominal day. Only reachable when a range clips
+  // outside every chunk, which the manifest should prevent.
   const DAY = 86_400;
   const firstKnown = known.indexOf(true);
   if (firstKnown > 0) {
@@ -180,30 +167,21 @@ function fillMissingEraStarts(eraStart: number[], known: readonly boolean[]): vo
 }
 
 /**
- * Ranking key. Raw chunk columns, plus the two derived returns — which are the
- * only rankings that actually discriminate between Polymesh operators.
- *
- * `totalStake` looks like the obvious default and is not: the election
- * equalises exposure, so the entire active set sits within a few percent of
- * each other and "the largest" is very nearly arbitrary. See
- * `docs/STATUS.md` on why the decentralisation figures look so even.
+ * Ranking key: raw chunk columns plus the two derived returns, which are the
+ * only rankings that discriminate between Polymesh operators. `totalStake` is
+ * not the obvious default it looks — the election equalises exposure, so "the
+ * largest" is very nearly arbitrary.
  */
 export type RankKey = keyof OperatorSeries | 'aprNet' | 'aprGross';
 
 /**
- * Operators present in the series, ordered by a metric.
+ * Operators present in the series, ordered by a metric — used to pick a default
+ * selection so the charts never open empty.
  *
  * Raw columns rank on their most recent value; the derived returns rank on
- * their *median* over the range, since a single era's return is noisy enough
- * that the top of a latest-value ranking would reshuffle daily.
- *
- * A median, not a mean, for the reason given in `lib/metrics/stats.ts`: an
- * operator's first era in the set pays a multiple of everything after it, so a
- * mean put two nodes that had joined weeks earlier at the top of the default
- * five — and this ranking is what the charts open on.
- *
- * Used to pick a default selection when nothing is pinned and no wallet is
- * connected — the charts should never open empty.
+ * their median over the range, since one era's return is noisy enough to
+ * reshuffle the top daily. A median rather than a mean for the reason in
+ * `lib/metrics/stats.ts`.
  */
 export function rankOperators(
   series: StitchedSeries,

@@ -2,14 +2,12 @@ import { scaleLinear, scaleLog, scaleUtc } from 'd3-scale';
 import { line as d3Line, area as d3Area, curveMonotoneX } from 'd3-shape';
 
 /**
- * Chart geometry: scales, paths, and the plot box.
+ * Chart geometry: scales, paths, and the plot box. Pure functions over plain
+ * numbers — no React, no DOM — which keeps the maths testable and the chart
+ * components thin.
  *
- * Pure functions over plain numbers — no React, no DOM. That keeps the maths
- * testable, and it is the reason the chart components stay thin enough to read.
- *
- * `d3-scale` and `d3-shape` are imported as submodules. The previous app pulled
- * in the whole `d3` meta-package (~600 KB) to use two functions; a lint rule
- * now blocks that.
+ * Import d3 as submodules, never the `d3` meta-package (~600 KB). A lint rule
+ * enforces this.
  */
 
 /** Space around the plot area, for axes and labels. */
@@ -20,10 +18,7 @@ export interface Margin {
   left: number;
 }
 
-/**
- * Default margins. The right margin is generous on purpose: direct labels sit
- * there, and they are what keeps series identity off colour alone.
- */
+/** Default margins. The right margin holds the direct labels. */
 export const DEFAULT_MARGIN: Margin = { top: 8, right: 96, bottom: 28, left: 52 };
 
 export interface PlotBox {
@@ -40,8 +35,8 @@ export function plotBox(width: number, height: number, margin: Margin = DEFAULT_
     width,
     height,
     margin,
-    // Clamped at zero: a container can briefly measure smaller than its own
-    // margins during layout, and a negative range makes d3 emit NaN paths.
+    // Clamped: a container can measure smaller than its margins mid-layout,
+    // and a negative range makes d3 emit NaN paths.
     innerWidth: Math.max(0, width - margin.left - margin.right),
     innerHeight: Math.max(0, height - margin.top - margin.bottom),
   };
@@ -56,22 +51,15 @@ export type LogScale = ReturnType<typeof scaleLog<number, number>>;
 export type TimeScale = ReturnType<typeof scaleUtc<number, number>>;
 
 /**
- * Either kind of value axis.
- *
- * Grid and `YAxis` only need `ticks`, `domain` and the call signature, and both
- * scales provide them, so the chrome does not have to know which it is drawing.
+ * Either kind of value axis. Grid and `YAxis` need only `ticks`, `domain` and
+ * the call signature, so the chrome need not know which it is drawing.
  */
 export type ValueScale = LinearScale | LogScale;
 
 /**
- * The x scale: **time, not era index**.
- *
- * Every axis in the previous app was labelled with a raw era number. An era is
- * a day, so era 1403 *is* a date — but the reader had to know the mapping.
- * Dates are primary here and the era index is secondary, shown in the tooltip.
- *
- * UTC rather than local time, so a chart looks identical wherever it is read
- * and an era boundary does not appear to drift across a timezone change.
+ * The x scale: time, not era index. An era is a day, so dates are primary and
+ * the era index is secondary, shown in the tooltip. UTC, so an era boundary
+ * does not appear to drift across a timezone change.
  */
 const ERA_SECONDS = 86_400;
 
@@ -79,9 +67,8 @@ export function timeScale(eraStartSeconds: readonly number[], innerWidth: number
   const first = eraStartSeconds[0] ?? 0;
   const rawLast = eraStartSeconds.at(-1) ?? first;
 
-  // A single era — or several sharing a timestamp — would otherwise collapse
-  // the domain to a point, mapping every datum to the same x and drawing the
-  // series as a vertical line. Widen by one era so it renders sensibly.
+  // A degenerate domain maps every datum to the same x, drawing the series as
+  // a vertical line. Widen by one era instead.
   const last = rawLast > first ? rawLast : first + ERA_SECONDS;
 
   return scaleUtc<number, number>()
@@ -90,11 +77,8 @@ export function timeScale(eraStartSeconds: readonly number[], innerWidth: number
 }
 
 /**
- * A linear x scale, for charts whose x axis is a quantity rather than a date.
- *
- * The penalty curves on `/slashing` are indexed by *number of simultaneous
- * offenders*, which `timeScale` cannot express — feeding it fabricated
- * timestamps would render date ticks over a count.
+ * A linear x scale, for charts whose x axis is a quantity rather than a date —
+ * the `/slashing` penalty curves, indexed by simultaneous offenders.
  */
 export function numericScale(values: readonly number[], innerWidth: number): LinearScale {
   const first = values[0] ?? 0;
@@ -113,29 +97,20 @@ export interface ValueScaleOptions {
   /** Hard floor, e.g. 0 for a quantity that cannot be negative. */
   min?: number;
   /**
-   * Hard ceiling, for a series with an outlier that would otherwise own the
-   * axis.
-   *
-   * The network's average APR over the chain's whole life is the case this
-   * exists for: its first week paid 12,564%, because 0.08% of supply was
-   * staked across three validators. That is real, and it sets a 15,000% axis
-   * that compresses the other 249 weeks — every one of them between 15% and
-   * 90% — into a flat line on the floor. Callers that set this must say so;
-   * marks above it are clipped, not dropped.
+   * Hard ceiling, for a series whose outlier would otherwise own the axis —
+   * the chain's first week paid 12,564% APR, which flattens every week since
+   * onto the floor. Marks above it are clipped, not dropped, and callers that
+   * set it must say so in the UI.
    */
   max?: number;
 }
 
 /**
- * The y scale, fitted to the data actually present.
+ * The y scale, fitted to the data actually present. Nulls are excluded rather
+ * than treated as zero, and an all-null series yields a benign 0..1 domain.
  *
- * Nulls are excluded rather than treated as zero — an operator absent from an
- * era did not score nothing — and an all-null series yields a benign 0..1
- * domain instead of NaN.
- *
- * `includeZero` defaults to false because most series here are rates. Forcing
- * zero onto an APR chart that ranges 19-22% compresses every real difference
- * into the top tenth of the plot and makes the chart useless.
+ * `includeZero` defaults to false because most series here are rates: forcing
+ * zero onto an APR chart ranging 19–22% flattens every real difference.
  */
 export function valueScale(
   series: readonly (readonly (number | null)[])[],
@@ -158,17 +133,10 @@ export function valueScale(
     hi = 1;
   }
 
-  /**
-   * Whether the data itself ever goes below zero.
-   *
-   * Captured here, before padding or the flat-series nudge, because both can
-   * push the domain below a floor the data never crosses. A count of operators
-   * ranging 3 to 108 padded by 8% asks for an axis starting at -5.4, and an
-   * axis offering "-5 operators" is nonsense — as is negative stake, negative
-   * points, or a negative reward. Series that genuinely go negative (a
-   * deviation from a baseline, say) are unaffected: this only clamps what was
-   * already non-negative.
-   */
+  // Captured before padding and the flat-series nudge, both of which can push
+  // the domain below a floor the data never crosses — an 8% pad on a 3..108
+  // operator count asks for an axis starting at -5.4. Series that genuinely go
+  // negative are unaffected.
   const neverNegative = lo >= 0;
 
   if (includeZero) {
@@ -176,8 +144,7 @@ export function valueScale(
     hi = Math.max(hi, 0);
   }
 
-  // A flat series has zero extent; give it room so the line is not drawn on
-  // the axis itself.
+  // A flat series has zero extent; give it room off the axis itself.
   if (lo === hi) {
     const nudge = Math.abs(lo) > 0 ? Math.abs(lo) * 0.1 : 1;
     lo -= nudge;
@@ -201,21 +168,14 @@ export function valueScale(
 }
 
 /**
- * A logarithmic value axis, for series that span orders of magnitude.
+ * A logarithmic value axis, for series that span orders of magnitude — a
+ * validator's first era pays a huge multiple (exposed on its own bond with no
+ * nominators) and 20–26% every era after. Log shows both the spike and what
+ * followed; linear shows one or the other.
  *
- * Some of this data genuinely does. Polymesh's first week paid 12,564% because
- * 0.08% of supply was staked; a validator's first era pays a similar multiple
- * because it is exposed on its own bond with no nominators — measured, a Huobi
- * node earned 2,959% in era 1660 on 50,000 POLYX and 20-26% every era after.
- * On a linear axis those points either own the chart or have to be clipped
- * away. On a log axis they and the ordinary range are legible together, which
- * is the only presentation that shows both the spike and what followed it.
- *
- * **Non-positive values are gaps, not points.** `log(0)` is undefined and
- * negatives have no log at all, so a zero cannot be placed on this axis. The
- * caller must drop them — `positiveOrNull` is here for that — and a broken line
- * is the correct rendering: an era an operator scored nothing in is an era it
- * has no return for, which is exactly what a gap means everywhere else here.
+ * Non-positive values are gaps, not points: they have no log, so the caller
+ * must drop them via `positiveOrNull`. A broken line is correct — an era with
+ * no score is an era with no return.
  */
 export function logValueScale(
   series: readonly (readonly (number | null)[])[],
@@ -238,11 +198,8 @@ export function logValueScale(
     lo = 1;
     hi = 10;
   }
-  // A ceiling applies here exactly as it does on a linear axis. It was left
-  // out at first on the theory that log could absorb any spike — it cannot: a
-  // series running 1% to 38,000% puts four and a half decades on the plot and
-  // squashes the settled range into the bottom fifth, which is no better than
-  // the linear chart the cap exists to rescue.
+  // A ceiling still applies: log absorbs a lot, but a 1%–38,000% series puts
+  // four and a half decades on the plot and squashes the settled range.
   if (max != null) hi = Math.min(hi, max);
   if (!(hi > lo)) hi = lo * 2;
 
@@ -251,8 +208,7 @@ export function logValueScale(
     hi *= 2;
   }
 
-  // Padding is multiplicative here. Adding a fraction of the *extent* would be
-  // meaningless on a log axis, where equal distances are equal ratios.
+  // Multiplicative: on a log axis equal distances are equal ratios.
   const factor = (hi / lo) ** padding;
 
   return scaleLog<number, number>()
@@ -275,15 +231,11 @@ export interface PathPoint {
 }
 
 /**
- * A line path that **breaks at gaps** rather than bridging them.
+ * A line path that breaks at gaps rather than bridging them: joining across a
+ * missing era would imply continuity the operator did not have.
  *
- * `defined()` is the whole point: joining across a missing era would draw a
- * straight line through data that does not exist, implying continuity the
- * operator did not have. A break reads correctly as "not in the set".
- *
- * `curveMonotoneX` smooths without overshooting — a plain cardinal curve can
- * swing an APR line below zero between two positive points, inventing a value
- * that never occurred.
+ * `curveMonotoneX` smooths without overshooting — a cardinal curve can swing an
+ * APR line below zero between two positive points.
  */
 export function linePath(points: readonly PathPoint[]): string {
   const generator = d3Line<PathPoint>()
@@ -302,19 +254,12 @@ export interface Run {
 }
 
 /**
- * Runs of missing values **inside** a series, as inclusive index ranges.
+ * Runs of missing values *inside* a series, as inclusive index ranges. A run
+ * reaching either end is not a gap in the record — it is the operator not
+ * existing yet, or having left — and tinting those covers most of a long chart.
  *
- * Interior is the operative word. A run that reaches either end of the array is
- * not a gap in the operator's record — it is the operator not existing yet, or
- * having left, and there is nothing missing about an era before an operator
- * joined the chain.
- *
- * Treating those the same was visible on `/operators` over full history: the
- * default selection is the five highest-returning operators, three of which
- * joined this year, so the "no data here" tint covered four and a half years of
- * a five-year chart. The plot was a grey rectangle with a few lines at the right
- * edge. `firstSeenEra` is not consulted — the series itself already says where
- * it starts, and a lookup could only disagree with what is drawn.
+ * `firstSeenEra` is not consulted: the series already says where it starts, and
+ * a lookup could only disagree with what is drawn.
  */
 export function interiorGaps(values: readonly (number | null)[]): Run[] {
   const defined = (i: number) => {
@@ -365,23 +310,16 @@ export function bandPath(points: readonly BandPoint[]): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Tick count scaled to available space.
- *
- * Chart text does not reflow, so a count that reads well at 1200px produces
- * overlapping labels at 360px. Deriving it from width is what lets one chart
- * component work at every breakpoint without a resize listener mutating
- * globals — which is how the previous app handled it.
+ * Tick count scaled to available space. Chart text does not reflow, so a count
+ * that reads well at 1200px overlaps at 360px.
  */
 export function tickCount(pixels: number, pixelsPerTick = 80): number {
   return Math.max(2, Math.min(10, Math.floor(pixels / pixelsPerTick)));
 }
 
 /**
- * Finds the datum nearest a pointer x, for the crosshair.
- *
- * Nearest-index rather than hit-testing each mark: it always resolves to
- * something, so the tooltip never flickers out between points, and it is O(1)
- * per move rather than O(points).
+ * The datum nearest a pointer x, for the crosshair. Nearest-index rather than
+ * hit-testing each mark, so the tooltip never flickers out between points.
  */
 export function nearestIndex(xs: readonly number[], pointerX: number): number {
   if (xs.length === 0) return -1;
@@ -403,25 +341,20 @@ export function nearestIndex(xs: readonly number[], pointerX: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Width below which direct labels are dropped.
- *
- * They need ~96px of right margin. On a 340px-wide phone chart that is 28% of
- * the plot spent on labels that would then be truncated to uselessness — the
- * legend above and the table view carry identity there instead.
+ * Width below which direct labels are dropped. They need ~96px of right margin,
+ * which is a quarter of a phone-width chart; the legend and table view carry
+ * series identity there instead.
  */
 export const DIRECT_LABEL_MIN_WIDTH = 560;
 
 /**
- * Margins scaled to the available width.
- *
- * Charts are drawn at real pixel dimensions (see `useMeasuredWidth`), so the
- * margins have to adapt rather than being scaled along with everything else.
+ * Margins scaled to the available width. Charts are drawn at real pixel
+ * dimensions (see `useMeasuredWidth`), so margins adapt rather than scale.
  */
 export function responsiveMargin(width: number): Margin {
   const showsDirectLabels = width >= DIRECT_LABEL_MIN_WIDTH;
   return {
-    // Headroom for the unit caption above the axis, and so the topmost tick
-    // label is not clipped by the SVG edge.
+    // Headroom for the unit caption and the topmost tick label.
     top: 18,
     right: showsDirectLabels ? 96 : 12,
     bottom: 28,
@@ -431,17 +364,12 @@ export function responsiveMargin(width: number): Margin {
 }
 
 /**
- * Left gutter wide enough for the widest tick label it has to hold.
+ * Left gutter wide enough for the widest tick label it has to hold. The fixed
+ * 52px from `responsiveMargin` fits "20%" but clips "10,000%" to "0,000%",
+ * which reads as a different number — routine on a log axis.
  *
- * `responsiveMargin` returns a fixed 52px, which is fine for "20%" and not for
- * "10,000%" — the latter rendered as "0,000%", silently losing a digit and
- * turning 10,000% into something that reads as 0. A log axis makes this routine
- * rather than rare, since its whole purpose is spanning magnitudes.
- *
- * Width is estimated from character count rather than measured in the DOM.
- * Tick labels are tabular figures at a known size, so ~6.2px a character is
- * accurate to a pixel or two, and measuring would mean a layout pass per
- * render to save nothing.
+ * Estimated from character count, not measured: tick labels are tabular figures
+ * at a known size, so measuring would cost a layout pass per render.
  */
 export function gutterFor(
   ticks: readonly number[],
@@ -450,11 +378,8 @@ export function gutterFor(
 ): number {
   let longest = 0;
   for (const tick of ticks) longest = Math.max(longest, format(tick).length);
-  // 6.8px a character at the 11px tabular figures `YAxis` uses, plus the 8px
-  // the label is offset from the plot and a little slack. A first attempt at
-  // 6.2 + 10 landed a "10,000%" tick exactly on the boundary and it still
-  // clipped, so this errs wide: a slightly generous gutter costs a few pixels
-  // of plot, a tight one silently turns 10,000% into 0,000%.
+  // 6.8px a character at the 11px tabular figures `YAxis` uses, plus the label
+  // offset and slack. Errs wide on purpose — a tight gutter clips digits.
   return Math.max(fallback, Math.ceil(longest * 6.8) + 14);
 }
 
@@ -464,13 +389,9 @@ export interface LabelPlacement {
 }
 
 /**
- * Nudges direct labels apart so they do not overprint each other.
- *
- * Without this, operators whose latest values are close render as illegible
- * overlapping text — observed with "Greentrail 1", "KDAC 3" and "Marketlend 3"
- * stacking into "KDACtlend 3". A greedy downward pass in value order is enough:
- * labels stay in the same vertical order as their series, which is what makes
- * them matchable to the lines at all.
+ * Nudges direct labels apart so they do not overprint each other. A greedy
+ * downward pass in value order keeps labels in the same vertical order as their
+ * series, which is what makes them matchable to the lines.
  *
  * @param ys desired y for each label, in the caller's series order
  * @param minGap minimum vertical separation in pixels
@@ -493,15 +414,14 @@ export function spreadLabels(
     previous = entry.y;
   }
 
-  // If the stack overflowed the bottom, push the whole run back up. Doing this
-  // as a second pass rather than clamping individually preserves the ordering.
+  // Shift the whole run rather than clamping individually, to keep the order.
   const overflow = (placed.at(-1)?.y ?? 0) - bounds.bottom;
   if (overflow > 0) {
     for (const entry of placed) entry.y -= overflow;
   }
 
-  // Finally clamp into the plot, accepting overlap only if there is genuinely
-  // no room — better a crowded label than one drawn outside the chart.
+  // Clamp into the plot, accepting overlap when there is no room — better a
+  // crowded label than one drawn outside the chart.
   for (const entry of placed) {
     entry.y = Math.min(Math.max(entry.y, bounds.top), bounds.bottom);
   }

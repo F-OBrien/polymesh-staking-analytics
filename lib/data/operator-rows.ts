@@ -4,18 +4,11 @@ import type { Latest, OperatorRegistry } from '@/lib/schemas/data';
 import type { StitchedSeries } from './series';
 
 /**
- * Building, sorting and filtering the operator directory.
+ * Building, sorting and filtering the operator directory. Pure functions, so
+ * this is testable without a DOM and the component stays presentational.
  *
- * The sortable table is the single most useful artefact on a staking site — it
- * is how anyone actually answers "who should I nominate?" — and the previous
- * app had none. All of the logic lives here as pure functions so it can be
- * tested without a DOM, and so the component stays presentational.
- *
- * **Deliberately hand-rolled rather than using TanStack Table**, deviating from
- * the design doc's §6.8. Three reasons, in order: v9 is a feature-composition
- * rewrite with a very different and sparsely documented API; the directory is
- * ~100 rows, so virtualisation and windowing buy nothing; and the critical-path
- * budget is tight enough that 15 KB for sorting a hundred rows is a poor trade.
+ * Hand-rolled rather than TanStack Table (§6.8): the directory is ~100 rows, so
+ * virtualisation buys nothing and 15 KB on the critical path is a poor trade.
  * Revisit if the table ever needs grouping, pinning or column resizing.
  */
 
@@ -31,28 +24,20 @@ export interface OperatorRow {
   selfStakeRatio: number | null;
   nominatorCount: number | null;
   /**
-   * Exposure pages the operator's backers were split across.
-   *
-   * Carried for the CSV export only. It is a payout mechanic with no
-   * consequence for a nominator on Polymesh, so nothing renders it as a status
-   * — see the note on `pageCount` in `lib/schemas/data.ts`.
+   * Exposure pages the operator's backers were split across. For the CSV export
+   * only — a payout mechanic with no consequence for a nominator, so nothing
+   * renders it as a status. See `pageCount` in `lib/schemas/data.ts`.
    */
   pageCount: number | null;
   blocked: boolean;
   /**
-   * Return, on three time bases and two commission bases.
+   * Return, on three time bases and two commission bases — never a bare
+   * "return". What an operator earns right now, what it earned last era and
+   * what it typically earns differ enough to change a nomination, as does
+   * whether commission has been taken off (up to a fifth of the number).
    *
-   * "Return" on its own is the site's most-asked-about number and was also its
-   * vaguest: a single column labelled `Return` was a *mean over the selected
-   * era range, after commission*, and said none of that. Three quantities were
-   * being conflated — what this operator is earning right now, what it earned
-   * last era, and what it has averaged — and they differ enough to change a
-   * nomination.
-   *
-   * So each is carried separately and labelled, and each exists gross and net,
-   * because whether commission has been taken off moves the number by up to a
-   * fifth. `…Gross` is before commission (node performance); the unsuffixed
-   * field is after commission (what a nominator receives).
+   * `…Gross` is before commission (node performance); the unsuffixed field is
+   * after (what a nominator receives).
    */
 
   /** Estimated from points scored so far in the era now running. Forward-looking. */
@@ -64,22 +49,16 @@ export interface OperatorRow {
   /** Which era `aprLastEra` refers to, so the column can name it. */
   lastEraIndex: number | null;
   /**
-   * The typical era across the visible range — a median, not a mean.
-   *
-   * A mean here reported a Huobi node at 48.59% over a year in which it earned
-   * 18–25% every era but one. See `median` in `lib/metrics/stats.ts` for the
-   * measurement and why a first era is a different regime rather than a bad
-   * data point.
+   * The typical era across the visible range — a median, not a mean. See
+   * `median` in `lib/metrics/stats.ts` for why a first era is a different
+   * regime rather than a bad data point.
    */
   aprMedian: number | null;
   aprMedianGross: number | null;
   /**
-   * Spread of per-era APR. Lower is steadier.
-   *
-   * Presented as "consistency" rather than raw σ: two operators with the same
-   * typical return are not equivalent if one of them halves some weeks. Robust,
-   * for the same reason the centre is — squaring the deviations put that same
-   * node at ±188% when it had in fact tracked the field all year.
+   * Spread of per-era APR; lower is steadier. Shown as "consistency" rather
+   * than raw σ, and robust for the same reason the centre is — squaring the
+   * deviations makes one first-era spike read as a wildly erratic operator.
    */
   aprSpread: number | null;
   aprSpreadGross: number | null;
@@ -97,11 +76,9 @@ export interface BuildRowsInput {
   registry: OperatorRegistry | undefined;
   erasPerYear: number;
   /**
-   * Tier-4 points for the era in progress, when the reader has Live on.
-   *
-   * Overrides the snapshot's points, which are up to 15 minutes old. That
-   * staleness is invisible on a mean over 90 eras and very visible on "is my
-   * node producing blocks right now", which is the question this answers.
+   * Points for the era in progress, when the reader has Live on. Overrides the
+   * snapshot's, which are up to 15 minutes old — invisible on a median over 90
+   * eras, very visible on "is my node producing blocks right now".
    */
   livePoints?: { total: number; byOperator: Record<string, number> } | null | undefined;
 }
@@ -115,11 +92,9 @@ const lastDefined = (values: readonly (number | null)[]): number | null => {
 };
 
 /**
- * Assembles one row per operator seen in either the range or the snapshot.
- *
- * The union matters: an operator elected today may have no history in a short
- * range, and one with history may have dropped out. Showing only the
- * intersection would silently hide both.
+ * One row per operator seen in either the range or the snapshot. The union, not
+ * the intersection: an operator elected today may have no history in a short
+ * range, and one with history may have dropped out.
  */
 export function buildOperatorRows({
   series,
@@ -135,9 +110,8 @@ export function buildOperatorRows({
   ]);
 
   // Inputs to the current-era estimate, shared by every row. Points come from
-  // Live when it is on and the snapshot otherwise; the two are the same
-  // quantity read at different freshness, so the estimate is identical in shape
-  // either way and simply becomes exact.
+  // Live when on and the snapshot otherwise — the same quantity at different
+  // freshness, so the estimate's shape does not change.
   const snapshotTotalPoints = (latest?.operators ?? []).reduce((sum, op) => sum + op.points, 0);
   const eraTotalPoints = livePoints?.total ?? snapshotTotalPoints;
   const inflation = latest?.inflation ?? 0;
@@ -156,9 +130,9 @@ export function buildOperatorRows({
         : { gross: [], net: [] };
     const aprSeries = apr.net;
 
-    // Snapshot values are exact base-unit strings; the range gives POLYX
-    // floats. Prefer the snapshot for "now" figures and fall back to the last
-    // era we hold, so a row is never blank just because the snapshot lagged.
+    // Snapshot values are exact base-unit strings, the range gives POLYX
+    // floats. Prefer the snapshot for "now", falling back to the last era held
+    // so a row is never blank just because the snapshot lagged.
     const totalStake = snapshot
       ? Number(BigInt(snapshot.totalStake) / 1_000_000n)
       : (lastDefined(columns?.totalStake ?? []) ?? null);
@@ -178,9 +152,8 @@ export function buildOperatorRows({
 
     const commission = snapshot?.commission ?? lastDefined(columns?.commission ?? []);
 
-    // "Last era" is the newest era actually held, which is the newest complete
-    // one for every range preset. Named in the column header rather than left
-    // implicit, because a stale ingest would otherwise pass for yesterday.
+    // The newest era actually held. Named in the column header rather than
+    // left implicit, since a stale ingest would otherwise pass for yesterday.
     const lastNet = lastDefinedAt(apr.net);
     const lastGross = lastDefinedAt(apr.gross);
 
@@ -250,12 +223,9 @@ export type SortKey =
 export type SortDirection = 'asc' | 'desc';
 
 /**
- * Sorts rows, always placing missing values last.
- *
- * A null is "unknown", not "worst": sorting by APR descending should not bury
- * a strong operator whose data has not loaded, nor float it to the top when
- * sorting ascending. Keeping unknowns at the bottom either way is the only
- * reading that does not mislead.
+ * Sorts rows, always placing missing values last. A null is "unknown", not
+ * "worst", so it must neither be buried under a descending sort nor floated to
+ * the top by an ascending one.
  */
 export function sortRows(
   rows: readonly OperatorRow[],
@@ -306,8 +276,7 @@ export function filterRows(
     if (filters.status && filters.status !== 'all' && row.status !== filters.status) return false;
 
     if (filters.maxCommission != null) {
-      // An unknown commission is not evidence of a low one, so it is excluded
-      // when the user has asked for a cap.
+      // An unknown commission is not evidence of a low one.
       if (row.commission == null || row.commission > filters.maxCommission) return false;
     }
 
@@ -324,13 +293,7 @@ export function filterRows(
 // Export
 // ---------------------------------------------------------------------------
 
-/**
- * CSV of the visible rows.
- *
- * Users want the numbers out — to check a figure, or for their own records on
- * a chain whose holders often have reporting obligations. The previous app
- * rendered to canvas, so its data was unreachable by any means.
- */
+/** CSV of the visible rows, for checking a figure or for reporting. */
 export function rowsToCsv(rows: readonly OperatorRow[]): string {
   const header = [
     'operator',
@@ -341,9 +304,8 @@ export function rowsToCsv(rows: readonly OperatorRow[]): string {
     'own_stake_polyx',
     'self_stake_ratio',
     'nominators',
-    // Every return column is exported on both commission bases and named for
-    // the period it covers. A bare `apr` column in a spreadsheet is exactly the
-    // ambiguity this rework exists to remove.
+    // Every return column names its period and commission basis — a bare `apr`
+    // column in a spreadsheet is the ambiguity worth avoiding.
     'apr_this_era_est_net',
     'apr_this_era_est_gross',
     'apr_last_era_net',

@@ -1,13 +1,10 @@
 /**
- * Distribution and concentration statistics.
+ * Distribution and concentration statistics: the p10–p90 band drawn behind the
+ * named series (§8.2), and the decentralisation metrics on /network.
  *
- * These power two things the previous app lacked entirely: the p10–p90 band
- * that replaces the 100-line spaghetti charts (design doc §8.2), and the
- * decentralisation metrics on /network.
- *
- * Every function ignores `null` entries — in a per-era column, `null` means the
- * operator was not in the active set, which is not the same as zero and must
- * not be averaged in.
+ * Every function ignores `null` entries — in a per-era column that means the
+ * operator was not in the active set, which is not zero and must not be
+ * averaged in.
  */
 
 /** Strips nulls and non-finite values, returning a sorted ascending copy. */
@@ -20,11 +17,9 @@ function cleanSorted(values: readonly (number | null)[]): number[] {
 }
 
 /**
- * Linear-interpolated quantile, matching the R-7 / NumPy default.
- *
- * `q` is in [0,1]. Returns `null` for an empty sample rather than NaN, so
- * callers must handle "no data" explicitly instead of rendering NaN into a
- * chart — which is how the previous app produced blank plots with no message.
+ * Linear-interpolated quantile, matching the R-7 / NumPy default. `q` is in
+ * [0,1]. Null rather than NaN for an empty sample, so callers must handle "no
+ * data" explicitly instead of rendering NaN into a chart.
  */
 export function quantileSorted(sorted: readonly number[], q: number): number | null {
   if (sorted.length === 0) return null;
@@ -73,37 +68,24 @@ export function mean(values: readonly (number | null)[]): number | null {
 }
 
 /**
- * Median. The typical era, rather than the average one.
- *
- * **Why the summary columns do not use `mean`.** A validator's first era in the
- * set is exposed on its own bond with no nominators and takes a full share of
- * points, so it pays a multiple of anything that follows. Measured on mainnet: a
- * Huobi node earning 18–25% every era of its life reported a *mean* return of
- * **48.59%** over a 365-era window, because one era in ninety paid 2,474%. A
- * nominator reading that column would conclude the wrong thing about the
- * operator they are about to back.
- *
- * A first era is not an outlier to be shrugged off, it is a different regime —
- * and so is the first era after an operator rejoins the set. The median ignores
- * both without having to know which is which.
+ * Median — the typical era rather than the average one, and what the summary
+ * columns use instead of `mean`. A validator's first era in the set is exposed
+ * on its own bond with no nominators and takes a full share of points, so it
+ * pays a multiple of everything after (measured: 2,474% in one era of ninety,
+ * dragging a 18–25% operator's mean to 48.59%). That is a different regime, not
+ * an outlier, as is the first era after rejoining; the median ignores both
+ * without needing to tell them apart.
  */
 export function median(values: readonly (number | null)[]): number | null {
   return quantile(values, 0.5);
 }
 
 /**
- * Robust spread: the median absolute deviation, scaled to be comparable with a
- * standard deviation.
- *
- * The partner to `median`, and needed for the same reason. `stdDev` squares
- * every deviation, so the same single 2,474% era that moved that node's mean by
- * 28 points moved its reported steadiness to ±188% — a number that says the
- * operator is wildly erratic when in fact it has been within a few points of the
- * field every era it has run.
- *
- * The 1.4826 factor makes this an unbiased estimator of σ for normally
- * distributed data, so a reader comparing it against a σ they remember is not
- * comparing different units.
+ * Robust spread: the median absolute deviation, scaled to compare with a
+ * standard deviation. The partner to `median`, for the same reason — `stdDev`
+ * squares every deviation, so one first-era spike reports a steady operator as
+ * wildly erratic. The 1.4826 factor makes this an unbiased estimator of σ for
+ * normal data, so the two are in the same units.
  */
 const MAD_TO_SIGMA = 1.4826;
 
@@ -129,16 +111,12 @@ export function stdDev(values: readonly (number | null)[]): number | null {
 }
 
 /**
- * Cumulative percentage deviation from a per-era reference.
+ * Cumulative percentage deviation from a per-era reference: how far above or
+ * below the network an operator ran, accumulated over the window. Answers
+ * "consistently better, or one lucky era?", which a per-era chart cannot.
  *
- * This is the "trend" metric from the previous app: for each era, how far above
- * or below the network the operator ran, accumulated over the window. It
- * answers "consistently better, or one lucky era?" — which a per-era chart
- * cannot.
- *
- * Eras where either series is null contribute nothing and do not break the
- * running total, so an operator that drops out of the set and returns keeps a
- * continuous line rather than resetting to zero.
+ * Null on either side contributes nothing without breaking the running total,
+ * so an operator that leaves the set and returns keeps a continuous line.
  */
 export function cumulativeDeviation(
   series: readonly (number | null)[],
@@ -166,12 +144,9 @@ export function cumulativeDeviation(
 
 /**
  * Nakamoto coefficient: the fewest entities whose combined stake exceeds
- * `threshold` of the total.
- *
- * The headline decentralisation number. A value of 4 means four operators
- * colluding could reach the threshold. Defaults to one third, the classic
- * Byzantine-fault bound for halting a chain, rather than the one half that
- * would be needed to control it.
+ * `threshold` of the total — 4 means four operators colluding could reach it.
+ * Defaults to one third, the Byzantine-fault bound for halting a chain, rather
+ * than the one half needed to control it.
  */
 export function nakamotoCoefficient(stakes: readonly number[], threshold = 1 / 3): number {
   const positive = stakes.filter((s) => Number.isFinite(s) && s > 0).sort((a, b) => b - a);
@@ -187,11 +162,9 @@ export function nakamotoCoefficient(stakes: readonly number[], threshold = 1 / 3
 }
 
 /**
- * Herfindahl–Hirschman Index on stake shares, normalised to [0,1].
- *
- * 0 is perfectly even, 1 is a single operator holding everything. Unlike the
- * Nakamoto coefficient it responds to every operator's share, not just the
- * largest ones, so the two are shown together.
+ * Herfindahl–Hirschman Index on stake shares, normalised to [0,1] — 0 perfectly
+ * even, 1 a single operator holding everything. Shown alongside the Nakamoto
+ * coefficient because it responds to every share, not just the largest.
  */
 export function herfindahlIndex(stakes: readonly number[]): number {
   const positive = stakes.filter((s) => Number.isFinite(s) && s > 0);
@@ -216,10 +189,8 @@ export function topNShare(stakes: readonly number[], n: number): number {
 
 /**
  * Lorenz curve points for a stake distribution: cumulative population share
- * against cumulative stake share, ascending. Always starts at (0,0).
- *
- * Plotted against the diagonal, the gap between the two *is* the inequality —
- * a single picture that needs no statistical literacy to read.
+ * against cumulative stake share, ascending. Always starts at (0,0). Plotted
+ * against the diagonal, the gap between the two is the inequality.
  */
 export function lorenzCurve(stakes: readonly number[]): { x: number; y: number }[] {
   const positive = stakes.filter((s) => Number.isFinite(s) && s > 0).sort((a, b) => a - b);

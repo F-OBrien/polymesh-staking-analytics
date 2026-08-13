@@ -24,25 +24,15 @@ import { Grid, XAxis, YAxis } from './axes';
 import { useChartHeight } from './chart-frame';
 
 /**
- * The banded multi-series line chart.
- *
- * This is the form that replaces the previous app's operator charts, and it is
- * the single most important visual change in the rebuild. Those drew ~100
- * series coloured by `d3.interpolateTurbo(index / count)` at 0.2 opacity with a
- * 100-row legend, which fails several ways at once: a *sequential* ramp used
- * for *categorical* identity, hues assigned by array position so filtering
- * repaints every survivor, ~100 colours nobody can distinguish, and identity
- * carried by colour alone.
- *
- * Four layers instead, bottom to top:
+ * The banded multi-series line chart, which answers "how is my operator doing
+ * versus the field?" without drawing a line per operator. Four layers, bottom
+ * to top:
  *
  *   1. the p10–p90 band across all operators — what "normal" looked like;
  *   2. the median, dashed;
  *   3. a reference line (the network average), direct-labelled;
- *   4. up to eight selected operators in fixed palette order, direct-labelled.
- *
- * The information a reader actually wants — *how is my operator doing versus
- * the field?* — is then legible, which it never was before.
+ *   4. up to `MAX_NAMED_SERIES` selected operators in fixed palette order,
+ *      direct-labelled. Colour follows series identity, never rank.
  *
  * Accessibility: the SVG carries a generated summary, arrow keys walk the x
  * axis announcing values through a live region, and the caller supplies a table
@@ -50,12 +40,9 @@ import { useChartHeight } from './chart-frame';
  */
 
 /**
- * Narrowest a gap marker may be drawn.
- *
- * A missing era is 0.74px wide at full history, which is nothing. The marker
- * is chrome saying "no data here", not a data mark whose width encodes a
- * quantity, so a floor is honest — and without one the thing it exists to make
- * visible is invisible.
+ * Narrowest a gap marker may be drawn. One era is 0.74px at full history, and
+ * the marker is chrome saying "no data here" rather than a mark whose width
+ * encodes a quantity, so a floor is honest.
  */
 const MIN_GAP_MARK = 3;
 
@@ -85,26 +72,20 @@ export interface BandedLineChartProps {
   height?: number;
   includeZero?: boolean;
   /**
-   * Hard ceiling for the y axis. Marks above it are clipped, not dropped.
-   *
-   * For a series with a bootstrap outlier that would otherwise own the axis —
-   * see `ValueScaleOptions.max`. A caller setting this must say so in the
-   * chart's coverage line, and the table view still carries the real values.
+   * Hard ceiling for the y axis; marks above it are clipped, not dropped. For a
+   * series whose bootstrap outlier would own the axis — see
+   * `ValueScaleOptions.max`. A caller setting this must say so in the chart's
+   * coverage line, and the table view still carries the real values.
    */
   yMax?: number | undefined;
   /**
-   * `log` for a series spanning orders of magnitude.
-   *
-   * A validator's first era pays a return like nothing that follows it — its
-   * own bond, no nominators, a full share of points. Linear either lets that
-   * point own the axis or clips it away; log shows it *and* the ordinary range
-   * on the same plot. Non-positive values become gaps, which is what they mean.
+   * `log` for a series spanning orders of magnitude, where linear either lets
+   * the outlier own the axis or clips it away. Non-positive values become gaps.
    */
   scaleType?: 'linear' | 'log' | undefined;
   /**
-   * Terser formatter for axis ticks. Falls back to `format`, but an axis wants
-   * "20%" where a tooltip wants "19.81%" — the extra digits are noise repeated
-   * down the gutter.
+   * Terser formatter for axis ticks, falling back to `format`. An axis wants
+   * "20%" where a tooltip wants "19.81%".
    */
   tickFormat?: ((value: number) => string) | undefined;
 }
@@ -127,38 +108,28 @@ export function BandedLineChart({
   const titleId = useId();
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
 
-  /**
-   * Drawn at the container's real pixel width, not a fixed viewBox scaled to
-   * 100%. Scaling a viewBox shrinks the *text* along with the marks, so an 11px
-   * axis label becomes ~4px on a phone — the same illegibility the previous app
-   * fought with a JS font-size ladder. Measuring instead keeps type at its
-   * natural size at every breakpoint.
-   */
+  // Drawn at the container's real pixel width, not a viewBox scaled to 100%:
+  // scaling shrinks the text with the marks, so an 11px axis label becomes ~4px
+  // on a phone. Measuring keeps type at its natural size at every breakpoint.
   const [containerRef, measuredWidth] = useMeasuredWidth<HTMLDivElement>();
   const width = measuredWidth ?? 0;
   const baseMargin = responsiveMargin(width);
   const showDirectLabels = width >= DIRECT_LABEL_MIN_WIDTH;
-  // Taller when the frame is expanded. This is the chart that most needs it:
-  // eight operators over ninety eras is a thicket in a page-width card, and
-  // vertical room separates the lines as much as horizontal room does.
+  // Taller when the frame is expanded — vertical room separates crowded lines
+  // as much as horizontal room does.
   const height = useChartHeight(requestedHeight);
 
   const logarithmic = scaleType === 'log';
   const formatTick = useMemo(() => tickFormat ?? ((v: number) => format(v)), [tickFormat, format]);
 
   /**
-   * The scale and the plot box, together, because each needs the other.
+   * The scale and the plot box together, because each needs the other:
+   * `innerHeight` depends only on the vertical margins, so the y scale builds
+   * against a provisional box, and its tick labels then decide the left
+   * gutter's width (without that pass "10,000%" renders as "0,000%").
    *
-   * `innerHeight` depends only on the top and bottom margins, so the y scale
-   * can be built against a provisional box. The tick labels it then produces
-   * are what decide how wide the left gutter has to be — without that pass a
-   * "10,000%" tick renders as "0,000%", which does not merely look wrong, it
-   * reads as a different number.
-   *
-   * One memo rather than two plus loose intermediates: the React Compiler
-   * cannot preserve memoization across a plain object built mid-render, and
-   * bailed out of optimising this component entirely when it was written that
-   * way.
+   * One memo rather than two — the React Compiler cannot preserve memoization
+   * across a plain object built mid-render, and bails out of this component.
    */
   const { box, y } = useMemo(() => {
     const provisional = plotBox(width, height, baseMargin);
@@ -201,13 +172,9 @@ export function BandedLineChart({
 
   const x = useMemo(() => timeScale(eraStart, box.innerWidth), [eraStart, box.innerWidth]);
 
-  /**
-   * Places a value on the axis, or returns null for a gap.
-   *
-   * On a log axis zero and negatives have nowhere to go — `y(0)` is -Infinity,
-   * which would drag a line off the plot rather than break it. Routing every
-   * plotted value through here keeps that decision in one place.
-   */
+  // Places a value on the axis, or null for a gap. On a log axis `y(0)` is
+  // -Infinity, which drags a line off the plot rather than breaking it; every
+  // plotted value routes through here so that decision lives in one place.
   const at = useCallback(
     (value: number | null | undefined): number | null => {
       const usable = logarithmic ? positiveOrNull(value) : (value ?? null);
@@ -280,8 +247,7 @@ export function BandedLineChart({
           .filter(Boolean)
           .join(', ');
 
-  // Nothing to draw until the container has been measured. Rendering at a
-  // guessed width would paint once and then visibly reflow.
+  // Nothing to draw until measured — a guessed width paints then reflows.
   if (width <= 0) {
     return <div ref={containerRef} style={{ height }} aria-hidden="true" />;
   }
@@ -304,10 +270,9 @@ export function BandedLineChart({
       >
         <title id={titleId}>{summary}</title>
 
-        {/* A clip, so a capped axis crops the marks at the plot edge instead
-            of letting them draw up through the title. Only defined when a cap
-            is in force — an unclipped plot is the normal case, and direct
-            labels in the right gutter must not be cropped. */}
+        {/* Crops marks at the plot edge when the axis is capped, instead of
+            letting them draw up through the title. Only when a cap is in
+            force — direct labels in the right gutter must not be cropped. */}
         {yMax != null ? (
           <defs>
             <clipPath id={`${titleId}-clip`}>
@@ -319,10 +284,9 @@ export function BandedLineChart({
         <g transform={`translate(${box.margin.left}, ${box.margin.top})`}>
           <Grid box={box} yScale={y} />
 
-          {/* Layers 1-4 are the only things a y-axis cap may crop. The axis
-              labels sit in the left gutter and the direct labels in the right,
-              both outside the plot box, so clipping the whole group would
-              erase the chart's own annotations along with the outlier. */}
+          {/* Layers 1-4 are the only things a y-axis cap may crop — the axis
+              and direct labels sit outside the plot box, and clipping the
+              whole group would erase them along with the outlier. */}
           <g {...(yMax != null ? { clipPath: `url(#${titleId}-clip)` } : {})}>
             {/* 1 — distribution band */}
             {band ? (
@@ -379,14 +343,10 @@ export function BandedLineChart({
               />
             ) : null}
 
-            {/* 3b — where a series stops mid-record.
-              Butt caps recover five pixels of gap, and that is still not
-              enough: at 1,749 eras across 1,300px one era is 0.74px, so no
-              break in a line can be seen however it is capped. A marker can
-              be, and "this operator recorded nothing here" is worth seeing at
-              every zoom — it is usually an outage. Drawn in the series' own
-              colour, under the lines, with a floor on its width. Interior runs
-              only: see `interiorGaps`. */}
+            {/* 3b — where a series stops mid-record, usually an outage. At
+                full history one era is 0.74px, so a break in the line cannot
+                be seen however it is capped, but a marker can: series colour,
+                under the lines, floored width. Interior runs only. */}
             {capped.map((s, index) =>
               interiorGaps(s.values).map((run) => {
                 const from = xs[run.from] ?? 0;
@@ -418,20 +378,16 @@ export function BandedLineChart({
               );
               return (
                 <g key={s.id} aria-hidden="true">
-                  {/* A surface-coloured casing under each line, so crossings read
-                    as one line passing over another rather than merging. */}
+                  {/* A surface-coloured casing, so crossings read as one line
+                      passing over another rather than merging. */}
                   <path
                     d={d}
                     fill="none"
                     stroke="var(--surface-1)"
                     strokeWidth={5}
-                    // Butt, not round. A round cap extends half the stroke
-                    // past the last point, so the 5px casing added 2.5px at
-                    // each side of every break — swallowing five pixels of
-                    // gap. Measured, that closed a two-era outage completely
-                    // at full history and left a one-era outage at 2px over a
-                    // year: the line looked continuous through an era the
-                    // operator produced nothing in.
+                    // Butt, not round: a round cap extends half the stroke
+                    // past the last point, so this 5px casing would swallow
+                    // 5px of every gap and close a short outage entirely.
                     strokeLinecap="butt"
                   />
                   <path d={d} fill="none" stroke={colour} strokeWidth={2} strokeLinecap="butt" />
@@ -469,11 +425,9 @@ export function BandedLineChart({
             </g>
           ) : null}
 
-          {/* Direct labels, so identity is never colour-only.
-              Nudged apart vertically: without that, operators whose latest
-              values are close overprint each other into illegibility. Dropped
-              entirely on narrow viewports, where the legend and table carry
-              identity instead of a 28%-of-width label gutter. */}
+          {/* Direct labels, so identity is never colour-only. Nudged apart so
+              close values do not overprint, and dropped entirely on narrow
+              viewports where the legend and table carry identity. */}
           {showDirectLabels
             ? spreadLabels(
                 capped.slice(0, 4).map((s) => {
@@ -501,8 +455,7 @@ export function BandedLineChart({
             box={box}
             scale={y}
             // The same formatter the gutter was sized from, or the width and
-            // the labels could disagree. Terser than the tooltip by design:
-            // "20%" down the gutter, "19.81%" where precision is wanted.
+            // the labels could disagree.
             format={formatTick}
             {...(yLabel ? { label: yLabel } : {})}
           />
@@ -518,8 +471,8 @@ export function BandedLineChart({
           style={{
             borderColor: 'var(--border)',
             background: 'var(--surface-2)',
-            // Flip to the left of the crosshair past the midpoint so the
-            // tooltip never runs off the right edge.
+            // Flips to the left of the crosshair past the midpoint, so it
+            // never runs off the right edge.
             left: (xs[active] ?? 0) + box.margin.left,
             transform:
               ((xs[active] ?? 0) + box.margin.left) / width > 0.6

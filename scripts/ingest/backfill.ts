@@ -1,16 +1,11 @@
 /**
  * Deep-history backfill from the archive node.
  *
- * `ingest:era` can only reach back `historyDepth` eras — 84 of them, so about
- * twelve weeks. Everything older has been pruned from current state, which is
- * why `/operators` reports operators as first seen three months ago when some
- * have been validating since era 0, and why every chart on the site is drawn
- * over a window far shorter than the chain's life.
- *
- * The eras are still readable. The public Polymesh RPCs are archive nodes, so
+ * `ingest:era` reaches back only `historyDepth` eras (~84, about twelve weeks);
+ * everything older is pruned from current state. The eras are still readable,
+ * though: the public Polymesh RPCs are archive nodes, so
  * `api.at(hashOfSomeBlockWhileEraNWasLive)` still decodes era N's storage —
- * verified by `npm run probe:archive` across spec versions 3000 to 7004001, era
- * 0 included. This walks that.
+ * verified by `npm run probe:archive` across spec versions 3000 to 7004001.
  *
  *   npm run ingest:backfill                      # everything missing, oldest first
  *   npm run ingest:backfill -- --max-eras 20     # a bounded slice
@@ -18,24 +13,14 @@
  *   npm run ingest:backfill -- --dry-run         # read and report, write nothing
  *   npm run ingest:backfill -- --force …         # refetch eras already on disk
  *
- * **Run it by hand.** It is not on a schedule and should not be: it is
- * thousands of prefix scans against someone else's public node, and once an era
- * is written it never changes, so there is nothing to re-run for. The two
+ * Run it by hand, and keep it off a schedule: it is thousands of prefix scans
+ * against someone else's public node, and a written era never changes. The
  * scheduled workflows keep the recent window fresh; this fills the past once.
  *
- * Three things make a backfilled era *better* than a live-ingested one, not
- * merely equal:
- *
- *  - **Total issuance is read at the block**, so it is the issuance that
- *    actually applied. `ingest:era` records today's figure against every era it
- *    writes, which is right for an era that just ended and increasingly wrong
- *    going back.
- *  - **Era start comes from `era-index.json`**, which is the indexer's record of
- *    when each transition happened, rather than extrapolated backwards at a
- *    nominal 24 hours an era. Measured drift over 1,749 eras is large enough
- *    that extrapolation would be days out at the far end.
- *  - **Provenance is recorded** as `backfill-archive`, so if this run ever
- *    proves subtly wrong it can be dropped by exactly the eras it wrote.
+ * A backfilled era is better than a live-ingested one, not merely equal:
+ * issuance is read at the block rather than stamped from today, era start comes
+ * from `era-index.json` rather than extrapolation, and provenance records
+ * `backfill-archive` so a bad run can be dropped by exactly the eras it wrote.
  */
 
 import { join } from 'node:path';
@@ -57,12 +42,9 @@ import { buildOperatorRegistry, collectSeenEras, mergeSpans, spansFromChunks } f
 import { buildRollup } from './rollup';
 
 /**
- * Concurrent archive reads.
- *
- * Lower than the incremental ingest's three. Each era here is an `api.at()`,
- * which makes the node serve historical state and — on the first block of a
- * spec version — its metadata too. This job has no deadline; the node is
- * shared.
+ * Concurrent archive reads, lower than the incremental ingest's: each era is an
+ * `api.at()`, which makes the node serve historical state and, on the first
+ * block of a spec version, its metadata too. This job has no deadline.
  */
 const CONCURRENCY = 2;
 

@@ -1,14 +1,11 @@
 /**
- * Turning chain reads into era records, and era records into chunks.
+ * Turning chain reads into era records, and era records into chunks — the part
+ * `era.ts` and `backfill.ts` must agree on. They differ only in where they
+ * point the API (current state, or a historical block via `api.at()`), and
+ * everything after that read has to be identical, or a backfilled era would be
+ * subtly incomparable with a live one in the same chunk.
  *
- * Extracted from `era.ts` so `backfill.ts` can share it. The two scripts differ
- * only in *where* they point the API — the incremental one at current state,
- * the backfill at a historical block via `api.at()` — and everything after that
- * read has to be identical, or a backfilled era would be subtly incomparable
- * with a natively ingested one sitting next to it in the same chunk.
- *
- * Nothing here connects, writes a manifest, or parses arguments. It is the part
- * both entry points must agree on.
+ * Nothing here connects, writes a manifest, or parses arguments.
  */
 
 import { CHUNK_SIZE } from '../../config/site';
@@ -76,7 +73,7 @@ export async function fetchEra(
     readEraExposures(api, era),
   ]);
 
-  // Union of everyone with an exposure and everyone who scored points. An
+  // Union of everyone with an exposure and everyone who scored points: an
   // account can do the latter without the former, and dropping those would
   // understate total points relative to the per-operator columns.
   const addresses = new Set<string>([
@@ -104,8 +101,8 @@ export async function fetchEra(
         totalStake: exposure?.total ?? 0n,
         ownStake: exposure?.own ?? 0n,
         nominatorCount: exposure?.nominatorCount ?? 0,
-        // null, not 0: an absent preferences entry means unknown commission,
-        // and assuming zero would overstate nominator returns.
+        // null, not 0 — an absent preferences entry means unknown commission,
+        // and zero would overstate nominator returns.
         commission: prefs.get(address)?.commission ?? null,
       };
     }),
@@ -120,11 +117,9 @@ const round = (value: number, dp: number): number => Number(value.toFixed(dp));
 
 /**
  * Builds a chunk from era records, merging with whatever is already on disk.
- *
- * Merging matters for the trailing chunk, which is rewritten every time a new
- * era lands. Existing eras must survive verbatim so that a completed chunk
- * hashes identically on re-run — the idempotency guarantee the design doc makes
- * an acceptance criterion.
+ * Merging matters for the trailing chunk, rewritten every time an era lands:
+ * existing eras must survive verbatim so a completed chunk hashes identically
+ * on re-run.
  */
 export function buildChunk(
   chunkStart: number,
@@ -182,8 +177,8 @@ export function buildChunk(
     for (const address of addresses) {
       const op = present.get(address);
       const columns = operators[address]!;
-      // Precision per column: shorter numbers compress markedly better, and
-      // sub-POLYX precision on a multi-million stake is far below one pixel.
+      // Per-column precision: shorter numbers compress markedly better, and
+      // sub-POLYX precision on a multi-million stake is below one pixel.
       columns.points.push(op ? Number(op.points) : null);
       columns.commission.push(op?.commission != null ? round(op.commission, 4) : null);
       columns.totalStake.push(op ? Math.round(toPolyx(op.totalStake, tokenDecimals)) : null);
@@ -191,8 +186,8 @@ export function buildChunk(
       columns.nominatorCount.push(op ? op.nominatorCount : null);
     }
 
-    // Aggregates use the same functions the client uses, so a tile and a chart
-    // can never disagree about what the network average was.
+    // The same functions the client uses, so a tile and a chart cannot
+    // disagree about what the network average was.
     const metricInputs: OperatorEraInput[] = record.operators
       .filter((o) => o.commission != null)
       .map((o) => ({
@@ -264,12 +259,9 @@ export function buildChunk(
 }
 
 /**
- * Rebuilds an `EraRecord` from an already-written chunk column set.
- *
- * Lossy by design: chunks store rounded POLYX, so re-deriving aggregates from
- * this would drift. It is used only to carry existing eras through a merge
- * unchanged, and every value it reproduces is written back at the same
- * precision it was read at.
+ * Rebuilds an `EraRecord` from an already-written chunk column set. Lossy by
+ * design — chunks store rounded POLYX — so this is only for carrying existing
+ * eras through a merge unchanged, never for re-deriving aggregates.
  */
 export function reconstructRecord(chunk: Chunk, index: number, tokenDecimals: number): EraRecord {
   const scale = 10 ** tokenDecimals;
@@ -289,10 +281,9 @@ export function reconstructRecord(chunk: Chunk, index: number, tokenDecimals: nu
 
   return {
     era: chunk.eras[index]!,
-    // Carried through, not defaulted: a chunk holding both backfilled and
-    // natively ingested eras is rewritten whole every time a new era lands, and
-    // defaulting here would quietly relabel the backfilled ones as live —
-    // destroying the only record of which eras a bad backfill wrote.
+    // Carried through, not defaulted: a mixed chunk is rewritten whole
+    // whenever an era lands, and defaulting would relabel backfilled eras as
+    // live — destroying the only record of what a bad backfill wrote.
     source: chunk.provenance.source[index] ?? 'live',
     eraStartSeconds: chunk.eraStart[index]!,
     specVersion: chunk.provenance.specVersion[index]!,

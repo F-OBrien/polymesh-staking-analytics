@@ -1,18 +1,11 @@
 /**
- * Slashing: the penalty model, and what a slash costs a nominator.
+ * Slashing: the penalty model, and what a slash costs a nominator. The curves
+ * here are the two penalty *formulas* against the number of simultaneous
+ * offenders, not history — both are superlinear in how many operators fail
+ * together, which is the most counter-intuitive property of Substrate slashing
+ * and the reason spreading nominations across independent operators matters.
  *
- * The previous app had a chart called `FineCurves` sitting in the Overview tab
- * with no explanation, which was easy to mistake for slashing *history*. It was
- * not — it plotted the two penalty **formulas** against the number of
- * simultaneous offenders, from the active operator count alone. That is a
- * genuinely useful thing to show, because both penalties are superlinear in how
- * many operators fail *together*, which is the single most counter-intuitive
- * property of Substrate slashing and the reason spreading nominations across
- * independent operators matters. It just needed saying out loud.
- *
- * So the curves are kept and the maths is lifted here verbatim, with the
- * constants named. History is a separate concern — see `lib/schemas/data.ts`
- * and `/slashing`.
+ * History is a separate concern: see `lib/schemas/data.ts` and `/slashing`.
  */
 
 /**
@@ -24,14 +17,10 @@
  * where `k` is the number of validators offending in the same session and `n`
  * is the size of the active set.
  *
- * Two properties are worth reading off the formula, because both are
- * surprising:
- *
- *  - **There is a free allowance.** While `k <= n/10 + 1` the term goes
- *    negative and the penalty is zero. A single validator going offline in
- *    isolation is not slashed at all — it simply earns nothing.
- *  - **It is capped at 7%**, and reaches that cap once roughly a third of the
- *    set is unresponsive at once.
+ * Two surprising properties fall out of it: there is a free allowance (while
+ * `k <= n/10 + 1` the penalty is zero, so an isolated offline validator is not
+ * slashed at all, it simply earns nothing), and it is capped at 7%, reached
+ * once roughly a third of the set is unresponsive at once.
  */
 export function unresponsivenessPenalty(offenders: number, validators: number): number {
   if (validators <= 0) return 0;
@@ -45,11 +34,10 @@ export function unresponsivenessPenalty(offenders: number, validators: number): 
  *
  *   fraction = min( (3k / n)^2, 1 )
  *
- * Quadratic, with no free allowance: an isolated equivocation by one validator
- * in a set of a hundred costs 0.09% of stake, while thirty-four doing it at
- * once costs everything. That asymmetry is deliberate — an isolated
- * equivocation is almost always a misconfiguration, whereas a correlated one is
- * indistinguishable from an attack.
+ * Quadratic, with no free allowance: one validator in a set of a hundred costs
+ * 0.09% of stake, thirty-four at once costs everything. An isolated equivocation
+ * is almost always a misconfiguration; a correlated one is indistinguishable
+ * from an attack.
  */
 export function equivocationPenalty(offenders: number, validators: number): number {
   if (validators <= 0) return 0;
@@ -64,11 +52,8 @@ export const OFFENCE_LABELS: Record<OffenceKind, string> = {
 };
 
 /**
- * Both penalty curves sampled across every possible offender count.
- *
- * `0..validators` inclusive, so the curve reaches its true endpoint rather than
- * stopping one short — the old implementation looped to `operatorCount + 1`
- * exclusive, which is the same range, written less obviously.
+ * Both penalty curves sampled across every possible offender count,
+ * `0..validators` inclusive so each reaches its true endpoint.
  */
 export function penaltyCurves(validators: number): {
   offenders: number[];
@@ -90,11 +75,9 @@ export function penaltyCurves(validators: number): {
 
 /**
  * The smallest number of simultaneous offenders that triggers a non-zero
- * penalty, or null if the curve never leaves zero.
- *
- * Only meaningful for unresponsiveness — equivocation has no allowance — but
- * written generally so the page can state the threshold rather than leave the
- * reader to infer it from a curve leaving the axis.
+ * penalty, or null if the curve never leaves zero. Only meaningful for
+ * unresponsiveness — equivocation has no allowance — but written generally so
+ * the page can state the threshold rather than leave it to be inferred.
  */
 export function firstPenalisedOffenderCount(
   validators: number,
@@ -109,17 +92,14 @@ export function firstPenalisedOffenderCount(
 /**
  * What a slash of `fraction` would cost a nominator holding `bonded`.
  *
- * **Conditional on the network's slashing scope, which on Polymesh currently
- * excludes nominators.** `validators.slashingAllowedFor` is set to `Validator`
- * on mainnet, so nominated tokens are not slashed at all — the official docs
- * put it as "not currently subject to slashing, but that could change in the
- * future". Callers must check `Slashes.scope` before presenting this as a real
- * loss; `/slashing` does.
+ * Hypothetical on mainnet: `validators.slashingAllowedFor` is `Validator`, so
+ * nominated tokens are not slashed at all. Callers must check `Slashes.scope`
+ * before presenting this as a real loss.
  *
  * The arithmetic is what Substrate would apply if the switch were flipped:
  * proportional to exposure, so a nominator loses the same percentage as the
- * operator regardless of how large that operator is. Nominators consistently
- * expect the loss to be diluted across the operator's other backers; it is not.
+ * operator, however large it is. The loss is *not* diluted across the
+ * operator's other backers, which is what nominators tend to expect.
  */
 export function nominatorLoss(bonded: number, fraction: number): number {
   return bonded * Math.max(0, Math.min(1, fraction));

@@ -8,43 +8,26 @@ import {
 } from './client';
 
 /**
- * Reward history for a stash.
+ * Reward history for a stash. Who was paid what exists only as `Rewarded`
+ * events, so this is the one part of the app that needs an indexer.
  *
- * The chain records what each era paid in total; it does not record who was
- * paid what. That only exists as `Rewarded` events, so this is the one part of
- * the app that genuinely needs an indexer rather than a snapshot.
- *
- * A regulated-asset chain's holders often have reporting obligations, so the
- * output here has to survive being exported to a spreadsheet and reconciled
- * against a block explorer. That drives two decisions: amounts stay as exact
- * base-unit strings until the last possible moment, and every row keeps its
- * block and era so a figure can be traced back to a specific event.
+ * Output has to survive export to a spreadsheet and reconciliation against a
+ * block explorer: amounts stay exact base-unit strings until the last possible
+ * moment, and every row keeps its block and era.
  */
 
 /**
- * A `Rewarded` staking event.
- *
- * `amount` is a base-unit string, never a number: POLYX has 6 decimals and a
- * lifetime of rewards can exceed what a float represents exactly. Converting
- * early is how reconciliation totals end up off by a few micro-POLYX.
+ * A `Rewarded` staking event. `amount` is a base-unit string, never a number —
+ * a lifetime of rewards exceeds what a float represents exactly.
  */
 export interface RewardEvent {
   /**
-   * The era whose work **earned** this reward — not the era it was paid in.
+   * The era whose work earned this reward, not the era it was paid in — a
+   * payout is always made after the era it pays for has closed, so the two
+   * differ by one. Both are carried, and neither is exported unqualified.
    *
-   * The distinction is real and easy to get backwards, because a payout is
-   * always made *after* the era it pays for has closed. A reward at block
-   * 129,434 landed one block into era 9, and is payment for era 8. Both are
-   * carried here, and both are exported, because "era" alone is ambiguous
-   * enough that it should not appear unqualified in a file someone reconciles.
-   *
-   * Null used to be the *normal* case rather than an edge case: the indexer
-   * records a block and not an era, and the block→era mapping came from our own
-   * chunks — about 85 eras, against reward histories running for years. It is
-   * now filled from `era-index.json`, which covers the chain's whole life, so
-   * null means what it should always have meant: genuinely outside the known
-   * range. An earlier revision defaulted it to `0`, which exported as a
-   * confident "era 0" in a file people use for tax reporting.
+   * Filled from `era-index.json`. Null means genuinely outside the known range;
+   * never default it to 0, which exports as a confident "era 0".
    */
   earnedEra: number | null;
   /** The era this payout landed in. Always `earnedEra + 1` when both are known. */
@@ -75,38 +58,18 @@ interface StakingEventsResponse {
 }
 
 /**
- * Every reward paid to a stash, oldest first.
+ * Every reward paid to a stash, oldest first. Two schema details that fail
+ * silently rather than loudly:
  *
- * Three details here were wrong when this was written blind, and each was found
- * by introspecting the live schema. They are worth spelling out because none of
- * them fails loudly:
+ *  - The block field is `createdBlockId`, not `blockId`.
+ *  - `eventId` must match both `Reward` and `Rewarded`. Polymesh renamed the
+ *    event across a runtime upgrade; filtering on one spelling returns a
+ *    plausible-looking lifetime total missing its early years.
  *
- *  - **The block field is `createdBlockId`,** not `blockId`. That one at least
- *    errors — the query 400s.
- *  - **`eventId` must match both `Reward` and `Rewarded`.** Polymesh renamed the
- *    event across a runtime upgrade and the enum carries both spellings.
- *    Filtering on `Rewarded` alone returns only recent history and silently
- *    reports a lifetime total that is missing its early years — the worst kind
- *    of wrong, because it looks entirely plausible.
- *
- * **Ordering is by `CREATED_BLOCK_ID_ASC`, and this was got wrong in both
- * directions.** An earlier revision assumed the id sorted lexicographically and
- * so shuffled history; it was switched to `DATETIME_ASC` on that basis. Both
- * halves of that reasoning were wrong:
- *
- *  - `createdBlockId` is **deliberately zero-padded** to a fixed ten digits
- *    (`"0000129434"`), precisely so that a string sort is a numeric sort.
- *    Verified across the dataset: every id is exactly 10 characters.
- *  - `datetime` is the field that is *not* safe to sort on, because it is also
- *    compared as a string and its format is **not** fixed-width — rows carry
- *    fractional seconds inconsistently (`…T13:26:12` alongside
- *    `…T13:26:12.001`). It happens to agree with block order today, which is
- *    exactly why relying on it is a trap.
- *
- * Block order is also the only *true* order: it is the chain's own causal
- * sequence, whereas a timestamp is a value written into a block and two blocks
- * can carry the same one. `ID_ASC` breaks ties within a block — the id is
- * `blockId/eventIdx`, both padded — so the walk is fully deterministic.
+ * Order by `CREATED_BLOCK_ID_ASC`, not `DATETIME_ASC`: the block id is
+ * zero-padded to ten digits so a string sort is a numeric sort, whereas
+ * `datetime` is compared as a string and is not fixed-width (fractional seconds
+ * appear inconsistently). `ID_ASC` breaks ties within a block.
  */
 const REWARDS_QUERY = `
   query RewardsForStash($stash: String!, $first: Int!, $offset: Int!) {
@@ -137,21 +100,17 @@ const REWARDS_QUERY = `
 
 export interface FetchRewardsOptions extends GraphQlOptions {
   /**
-   * Which era a payout was *earned* in, given the block it was paid in.
-   *
-   * Injected rather than computed here, because it needs the era index — every
-   * era's start block over the chain's whole life — and this module deliberately
-   * knows nothing about our own data files. Returns null for anything it cannot
-   * place, which becomes a blank cell rather than an invented era.
+   * Which era a payout was earned in, given the block it was paid in. Injected
+   * so this module stays free of our own data files. Returns null for anything
+   * it cannot place, which becomes a blank cell rather than an invented era.
    */
   earnedEra?: ((blockNumber: number) => number | null) | undefined;
 }
 
 /**
- * Every `Rewarded` event for a stash, oldest first.
- *
- * Returns `truncated` when the page cap was reached, so the UI can say the
- * history is partial rather than quietly showing a wrong lifetime total.
+ * Every `Rewarded` event for a stash, oldest first. `truncated` marks a history
+ * cut short by the page cap, so the UI can say so rather than show a wrong
+ * lifetime total.
  */
 export async function fetchRewards(
   stash: string,
@@ -174,22 +133,11 @@ export async function fetchRewards(
 }
 
 /**
- * Headline totals for a stash, in **one** request.
+ * Headline totals for a stash in one request, so the page need not walk every
+ * payout (paginated at a hard 100-row server cap) just to print a total.
  *
- * The detail walk is paginated at 100 rows — a hard server cap, not a setting
- * (asking for 500 or 1000 returns 100). A real account with 11,858 payouts is
- * therefore 119 sequential round trips against someone else's public endpoint,
- * just to print a total.
- *
- * The indexer will do the sum itself. `totalCount` and `aggregates.sum.amount`
- * come back from a single query, so the page can show the lifetime total and
- * the payout count immediately and only walk the detail when a reader actually
- * asks for the chart or the CSV.
- *
- * Verified on mainnet: a stash reporting `totalCount 1763` and
- * `sum 888711733041` in one request. Note the aggregate set is narrow —
- * `min`/`max` over `datetime` are *not* offered, so a date range still needs
- * rows.
+ * The aggregate set is narrow: `min`/`max` over `datetime` are not offered, so
+ * the date range comes from one row at each end of the block ordering.
  */
 const REWARD_SUMMARY_QUERY = `
   query RewardSummaryForStash($stash: String!) {
@@ -254,13 +202,8 @@ export interface RewardTotals {
 
 /**
  * Lifetime total, count, and the first and last payout — without downloading
- * the payouts.
- *
- * All four in **one** request, via three aliased selections. The endpoint will
- * sum server-side but offers no `min`/`max` over `datetime`, so the date range
- * comes from asking for exactly one row at each end of the block ordering
- * instead. That is what lets "realised return" and "last payout" render from
- * the cheap query rather than waiting on a walk of every event.
+ * the payouts. One request, three aliased selections, so "realised return" and
+ * "last payout" render without walking every event.
  */
 export async function fetchRewardTotals(
   stash: string,
@@ -278,23 +221,17 @@ export async function fetchRewardTotals(
 }
 
 /**
- * How many paginated requests a full detail walk would cost.
- *
- * Exposed so the UI can say "1,764 payouts — load the full history?" rather
- * than silently spending two minutes of someone's connection, and so the cost
- * is visible at the call site rather than buried in a loop.
+ * How many paginated requests a full detail walk would cost, so the UI can ask
+ * before spending minutes of someone's connection.
  */
 export function pagesFor(count: number): number {
   return Math.ceil(count / INDEXER_PAGE_SIZE);
 }
 
 /**
- * Normalises one indexer row.
- *
- * Defensive about types because the endpoint is someone else's: `blockId`
- * arrives as a string, `amount` can be null on a malformed row, and `datetime`
- * is ISO. A row we cannot read becomes a zero rather than a crash — one bad
- * event should not blank an entire reward history.
+ * Normalises one indexer row. Defensive because the endpoint is someone else's:
+ * a row we cannot read becomes a zero rather than a crash, so one bad event
+ * does not blank an entire reward history.
  */
 export function toRewardEvent(
   node: {
@@ -331,23 +268,16 @@ export function parseEventIndex(id: string | undefined): number {
 /**
  * Normalises an indexer `amount` to an exact base-unit string.
  *
- * The schema types this as `BigFloat`, not an integer — it arrives as a string
- * like `"1234567"`, sometimes with a `.0` tail, and in principle as a number.
- * The original code demanded `/^\d+$/` and turned anything else into zero,
- * which would have silently reported a lifetime total of 0 POLYX rather than
- * failing.
- *
- * Everything downstream sums in `bigint`, so the string must be exact and
- * integral. A fractional part is discarded rather than rounded: base units are
- * indivisible, so a fraction can only be an artefact of the float encoding, and
- * rounding up could invent a unit that was never paid.
+ * The schema types this as `BigFloat`, so it arrives as a string, sometimes
+ * with a `.0` tail, and in principle as a number. Downstream sums in `bigint`,
+ * so the result must be integral; a fractional part is discarded rather than
+ * rounded, since it can only be an artefact of the float encoding.
  */
 export function toBaseUnits(amount: string | number | null | undefined): string {
   if (amount == null) return '0';
 
   const text = typeof amount === 'number' ? amount.toFixed(0) : amount.trim();
-  // Scientific notation would lose precision through Number; reject it rather
-  // than report a wrong figure. Not observed on mainnet, but cheap to guard.
+  // Rejects scientific notation, which would lose precision through Number.
   const match = /^(\d+)(?:\.\d+)?$/.exec(text);
   return match?.[1] ?? '0';
 }
@@ -384,24 +314,17 @@ export interface DailyReward {
 }
 
 /**
- * How finely to bucket a reward history.
- *
- * Daily is the natural grain — Polymesh pays once per era and an era is a day —
- * but a long history is thousands of buckets, which draws as a solid block of
- * one-pixel bars. Coarser grouping is what makes a multi-year history readable,
- * and it also absorbs the case where a stash takes several payouts in one day
- * (an operator being paid across multiple exposure pages, say).
+ * How finely to bucket a reward history. Daily is the natural grain (one era,
+ * one day), but a multi-year history needs coarser grouping to stay readable.
  */
 export type RewardPeriod = 'day' | 'week' | 'month' | 'year';
 
 const DAY_SECONDS = 86_400;
 
 /**
- * Start of the bucket a moment falls in, in UTC.
- *
- * UTC throughout, so a chart looks the same wherever it is read and a boundary
- * does not appear to drift with the reader's timezone. Weeks start Monday,
- * matching ISO-8601 — `getUTCDay()` returns 0 for Sunday, hence the shift.
+ * Start of the bucket a moment falls in. UTC throughout, so boundaries do not
+ * drift with the reader's timezone. Weeks start Monday per ISO-8601 —
+ * `getUTCDay()` returns 0 for Sunday, hence the shift.
  */
 export function periodStart(unixSeconds: number, period: RewardPeriod): number {
   const date = new Date(unixSeconds * 1000);
@@ -437,15 +360,12 @@ function nextPeriod(start: number, period: RewardPeriod): number {
 }
 
 /**
- * Groups rewards into buckets for charting.
- *
- * Buckets by *when the payout landed*, not by the era it was earned in, because
- * several eras' rewards can be claimed in one transaction — attributing them
- * all to the claim era would draw a spike where there was none.
+ * Groups rewards into buckets for charting, by when the payout landed rather
+ * than the era earned — several eras can be claimed in one transaction, which
+ * would draw as a spike.
  *
  * Empty buckets are filled in, so a gap in earning renders as a flat stretch
- * rather than a straight jump between two distant points. That gap is often the
- * most informative thing on the chart.
+ * rather than a jump between two distant points.
  */
 export function rewardsByPeriod(
   events: readonly RewardEvent[],
@@ -472,17 +392,14 @@ export function rewardsByPeriod(
   return filled;
 }
 
-/** Daily buckets. Kept as the common case reads better than a defaulted call. */
+/** Daily buckets — reads better at the call site than a defaulted argument. */
 export function rewardsByDay(events: readonly RewardEvent[]): DailyReward[] {
   return rewardsByPeriod(events, 'day');
 }
 
 /**
- * The coarsest grain that still shows detail, given how long the history is.
- *
- * A five-year daily history is 1,800 bars in a 1,300px chart — under a pixel
- * each, so the bars merge and the shape is lost. Around 120 buckets is where a
- * bar is wide enough to see and to point at.
+ * The coarsest grain that still shows detail. Thresholds keep the chart near
+ * ~120 buckets, where a bar is still wide enough to see and to point at.
  */
 export function suggestPeriod(events: readonly RewardEvent[]): RewardPeriod {
   const times = events.map((e) => e.datetime).filter((t) => t > 0);
@@ -505,13 +422,9 @@ export function cumulativeRewards(daily: readonly DailyReward[]): DailyReward[] 
 }
 
 /**
- * Realised return over a window, annualised.
- *
- * Deliberately *not* comparable to the APR shown elsewhere without saying so:
- * this divides rewards actually received by the amount currently bonded, and a
- * user who bonded more part-way through will see a figure that looks low. The
- * UI states that; the function returns null rather than guessing when it cannot
- * be computed honestly.
+ * Realised return over a window, annualised. Not directly comparable to the APR
+ * shown elsewhere: it divides rewards received by the amount *currently*
+ * bonded, so bonding more part-way through reads low. The UI says so.
  */
 export function realisedApr({
   rewards,
@@ -523,18 +436,15 @@ export function realisedApr({
   days: number;
 }): number | null {
   if (bonded <= 0n || days <= 0 || rewards < 0n) return null;
-  // Ratio first, in float — the magnitudes here are far inside what a double
-  // represents, and the exactness that matters was preserved in the sum.
+  // Float is safe here: the exactness that matters was preserved in the sum.
   const ratio = Number(rewards) / Number(bonded);
   return (ratio * 365) / days;
 }
 
 /**
- * CSV of a reward history.
- *
- * Users on a regulated-asset chain need this for reporting, so it carries the
- * block number and the exact base-unit amount alongside the human-readable
- * POLYX — enough to reconcile any row against a block explorer.
+ * CSV of a reward history for reporting. Carries the block and the exact
+ * base-unit amount alongside the human-readable POLYX, so any row can be
+ * reconciled against a block explorer.
  */
 export function rewardsToCsv(
   events: readonly RewardEvent[],
@@ -544,9 +454,7 @@ export function rewardsToCsv(
 ): string {
   const header = [
     'date_utc',
-    // Never a bare `era` column: a payout is made after the era it pays for has
-    // closed, so the two differ by one and the unqualified name is ambiguous
-    // exactly where it matters most.
+    // Never a bare `era` column — earned and paid-in differ by one.
     'era_earned',
     'era_paid_in',
     'block',
@@ -562,9 +470,8 @@ export function rewardsToCsv(
   const lines = events.map((event) =>
     [
       event.datetime > 0 ? new Date(event.datetime * 1000).toISOString() : '',
-      // Blank rather than 0 when the era is unknown: this file gets reconciled
-      // against block explorers and filed for reporting, so an invented era
-      // index is worse than an empty cell.
+      // Blank rather than 0: an invented era is worse than an empty cell in a
+      // file filed for reporting.
       event.earnedEra == null ? '' : String(event.earnedEra),
       event.paidEra == null ? '' : String(event.paidEra),
       String(event.blockNumber),
