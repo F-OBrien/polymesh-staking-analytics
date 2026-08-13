@@ -12,7 +12,6 @@ import { HeadingWithTip } from '@/components/info-tip';
 import { AsOf, ErrorState } from '@/components/states';
 import { Sparkline } from '@/components/charts/sparkline';
 import { axisRangeNote, outlierCap } from '@/lib/charts/notes';
-import { REWARD_CURVE } from '@/lib/metrics/staking';
 import {
   formatBaseUnits,
   formatNumber,
@@ -160,6 +159,34 @@ export function NetworkAnalytics() {
   const ratio = latest.data?.stakingRatio;
   const decimals = manifest.data?.chain.tokenDecimals ?? 6;
 
+  /**
+   * Which side of the *cap* we are on — not the reward curve's "ideal".
+   *
+   * This tile used to read "below the 70% target — returns run high", quoting
+   * `REWARD_CURVE.xIdeal`. That is a Substrate concept and it is the wrong
+   * threshold for Polymesh: a fixed 140,000,000 POLYX annual reward caps
+   * inflation at ~10.7% of issuance, which binds at about 50% staked. The
+   * curve's 70% ideal is therefore never reached, and describing the network as
+   * heading toward it implies a smooth taper that will not happen — past the cap
+   * the pot stops growing and the return falls in step with any further
+   * staking. See `components/reward-curve.tsx`.
+   *
+   * The home page's tiles had already been corrected to say this; this copy had
+   * not, and both were deployed. It survives here because the two pages are now
+   * one.
+   */
+  const cap =
+    latest.data && BigInt(latest.data.totalIssuance) > 0n
+      ? Number(BigInt(latest.data.fixedYearlyReward)) / Number(BigInt(latest.data.totalIssuance))
+      : null;
+  const capped = latest.data != null && cap != null && latest.data.inflation >= cap - 1e-9;
+  const ratioHint =
+    ratio == null
+      ? undefined
+      : capped
+        ? 'inflation is at its ceiling — more staking now lowers the return'
+        : 'inflation still rises with staking, so the return tapers only gently';
+
   return (
     <>
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
@@ -220,13 +247,7 @@ export function NetworkAnalytics() {
           <StatTile
             label="Staking ratio"
             value={formatPercent(ratio, { decimals: 2 })}
-            hint={
-              ratio == null
-                ? undefined
-                : ratio < REWARD_CURVE.xIdeal
-                  ? `below the ${formatPercent(REWARD_CURVE.xIdeal, { decimals: 0 })} target — returns run high`
-                  : `above the ${formatPercent(REWARD_CURVE.xIdeal, { decimals: 0 })} target — returns run low`
-            }
+            hint="of total supply"
             footer={asOf}
             loading={latest.isLoading}
           />
@@ -236,6 +257,7 @@ export function NetworkAnalytics() {
               compact: true,
               symbol: true,
             })}
+            hint={ratioHint}
             delta={tileDelta(delta?.staked)}
             footer={asOf}
             loading={latest.isLoading}

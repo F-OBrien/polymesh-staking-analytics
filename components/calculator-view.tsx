@@ -353,7 +353,7 @@ export function CalculatorView() {
             <p className="mt-3 mb-0 text-sm" style={{ color: 'var(--text-secondary)' }}>
               The formulas behind this are written out on the <Link href="/about/">about page</Link>
               , and the staking-ratio dependency is visible on{' '}
-              <Link href="/network/">the network page</Link>.
+              <Link href="/">the network figures on the home page</Link>.
             </p>
           </div>
         </section>

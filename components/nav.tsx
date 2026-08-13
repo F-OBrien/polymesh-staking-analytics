@@ -16,7 +16,6 @@ import { ThemeToggle } from './theme-toggle';
  * competing for attention with the five things most visitors want.
  */
 const LINKS = [
-  { href: '/network', label: 'Network' },
   { href: '/operators', label: 'Operators' },
   { href: '/compare', label: 'Compare' },
   { href: '/my-staking', label: 'My Staking' },

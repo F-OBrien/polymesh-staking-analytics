@@ -277,13 +277,14 @@ Three things must be true:
 | **Active nominator** | "How is my stake performing? Should I switch?" | My Staking, Operator detail, Compare |
 | **Operator** | "How do I rank? Is my node performing?" | Operator detail, Compare, Operators table |
 | **Analyst / Association** | "How healthy and decentralised is the network?" | Network, Decentralisation, Data export |
-| **Curious observer** | "What is going on with Polymesh staking?" | Home, Network |
+| **Curious observer** | "What is going on with Polymesh staking?" | Home |
 
 ### 5.3 Information architecture
 
 ```
-/                        Home — network pulse + entry points
-/network                 Network analytics (history, rewards, inflation, decentralisation)
+/                        Home — what the site is, entry points, and the network
+                         analytics in full (history, rewards, inflation,
+                         decentralisation). Merged; see §9.1
 /operators               Operator directory: sortable/filterable table + overview charts
 /operators/[address]     Operator detail
 /compare?ops=a,b,c       Side-by-side comparison (2–5 operators)
@@ -858,16 +859,16 @@ This replaces the ~100-line operator charts and is the most important visual cha
 
 | # | Chart | Question | Form | Page |
 |---|---|---|---|---|
-| C1 | Network stat tiles | What is the network doing right now? | Stat tiles + sparkline + delta | Home, Network |
-| C2 | Staking ratio vs ideal | Are we near the 70% ideal? | Gauge/bullet with 70% target marker | Home, Network |
-| C3 | Reward & inflation curve | How does APR respond to the staking ratio? | Two lines + annotated current-position marker | Network, Calculator |
-| C4 | Total staked over time | Is stake growing? | Area, one series | Network |
-| C5 | Average APR / APY over time | What has the return been? | Multi-line (4 series max, slots 1–4) | Network |
-| C6 | Total rewards per era | What is being paid out? | Bar | Network |
-| C7 | Total points per era | Is block production stable? | Line + band | Network |
-| C8 | Validator-set size | Is the active set changing? | Step line, active vs waiting | Network |
-| C9 | Stake concentration | How decentralised is stake? | Lorenz curve + Nakamoto/HHI stat tiles | Network |
-| C10 | Top-N stake share | Who holds the stake? | Stacked area, top 8 + "Other" | Network |
+| C1 | Network stat tiles | What is the network doing right now? | Stat tiles + sparkline + delta | Home |
+| C2 | Staking ratio vs ideal | Are we near the 70% ideal? | **Dropped** — the question is wrong for this chain. Inflation is capped by a fixed yearly reward that binds near 50% staked, so the 70% ideal is never reached; C3 marks the cap instead | — |
+| C3 | Reward & inflation curve | How does APR respond to the staking ratio? | Two lines + annotated current-position marker | Home, Calculator |
+| C4 | Total staked over time | Is stake growing? | Area, one series | Home |
+| C5 | Average APR / APY over time | What has the return been? | Multi-line (4 series max, slots 1–4) | Home |
+| C6 | Total rewards per era | What is being paid out? | Bar | Home |
+| C7 | Total points per era | Is block production stable? | Line + band | Home |
+| C8 | Validator-set size | Is the active set changing? | Step line, active vs waiting | Home |
+| C9 | Stake concentration | How decentralised is stake? | Lorenz curve + Nakamoto/HHI stat tiles | Home |
+| C10 | Top-N stake share | Who holds the stake? | Stacked area, top 8 + "Other" | Home |
 | C11 | Operator APR over time | How does an operator compare? | **§8.2 banded multi-series** | Operators, Compare, Detail |
 | C12 | Operator points over time | Is the node reliable? | **§8.2 banded multi-series** | Operators, Compare, Detail |
 | C13 | Operator stake over time | Is it gaining or losing stake? | **§8.2 banded multi-series** | Operators, Compare, Detail |
@@ -889,20 +890,36 @@ This replaces the ~100-line operator charts and is the most important visual cha
 
 ## 9. Page specifications
 
-### 9.1 `/` Home
+### 9.1 `/` Home — and the network view
 
-- **Hero:** one sentence stating what the site is, plus the headline number — current average APR after commission, with a 30-day delta and sparkline.
-- **Stat tile row (C1):** Total Staked · Staking Ratio (vs 70% ideal) · Active Operators · Current Era + countdown to next · Annual Inflation. Each with a delta and a sparkline.
-- **Staking ratio gauge (C2)** with the 70% target marked and a plain-language reading ("below ideal — rewards are above their long-run level").
-- **Three entry cards:** *Find an operator* → `/operators` · *Check my staking* → `/my-staking` · *Estimate returns* → `/calculator`.
-- **Recent activity:** last 5 notable events (commission changes, new operators, slashes).
-- Must render meaningful content **from `latest.json` alone**, before any chunk lands.
+**These were two pages and they are now one.** Built as specced, home carried
+six tiles — return, staked, staking ratio, inflation, operator count, era
+countdown — and `/network` opened with the same figures in its Chain status and
+Rewards sections before going on to the charts behind them. A visitor read the
+numbers, clicked Network, and read them again. Worse, the two copies drifted:
+home's staking-ratio tile had been corrected to describe the **inflation cap**
+while `/network` still described the reward curve's 70% "ideal" — a threshold
+this chain never reaches (§6.4a). Both were deployed.
 
-### 9.2 `/network`
+So `/network` is gone and `/` is the network view:
 
-Sections, each with a one-line explainer: **Rewards & Returns** (C5, C6, C3) · **Stake** (C4, C2) · **Participation** (C7, C8) · **Decentralisation** (C9, C10) with Nakamoto coefficient, HHI, and top-10 share as tiles.
+- **Hero:** one sentence stating what the site is, and a link to the
+  methodology.
+- **Three entry cards:** *Find an operator* → `/operators` · *Check my staking*
+  → `/my-staking` · *Estimate returns* → `/calculator`. Kept because a nav item
+  is a word and an arriving visitor needs the sentence.
+- **Chain status** (era, session, election phase), then sections each with a
+  one-line explainer: **Rewards & Returns** (C5, C6, C3) · **Stake** (C4) ·
+  **Participation** (C7, C8) · **Decentralisation** (C9, C10) with Nakamoto
+  coefficient, HHI and top-10 share as tiles · **Trends at a glance**.
+- Global era-range control (30d · 90d · 6m · 1y · All), URL-encoded, applied to
+  every chart on the page.
+- The tiles must render **from `latest.json` alone**, before any chunk lands.
 
-Global era-range control (30d · 90d · All · custom), URL-encoded, applied to every chart on the page.
+Dropped from the original spec: the **staking-ratio gauge (C2)** — the reward
+curve chart says the same thing with the cap marked on it, and a gauge against a
+70% target this chain cannot reach would repeat the error above. **Recent
+activity** was never built; it needs an event feed nothing generates.
 
 ### 9.3 `/operators`
 

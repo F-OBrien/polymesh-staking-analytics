@@ -16,7 +16,7 @@ file is only *where we are* and *what to watch out for*.
 | 1c | Ingestion pipeline, chain compat layer, two scheduled workflows |
 | 2 | Design system, app shell, client data layer, `/about` |
 | 3 | Chart kit: banded multi-series, frame + table toggle, legend, sparkline, `/kitchen-sink` |
-| 4 | `/network` — returns, stake, participation, decentralisation; URL-encoded era range; bundle brought under budget |
+| 4 | Network analytics — returns, stake, participation, decentralisation; URL-encoded era range; bundle brought under budget. Built as `/network`, later merged into `/` |
 | 5 | `/operators` directory + 100 prerendered detail pages; sort/filter/CSV; global `?ops=` pin model; `npm run budget` |
 | 6 | `/compare`, `/calculator`, `/slashing`; slash ingestion + `slashes.json`; penalty-curve maths; numeric-x chart |
 | 7 | `/my-staking`; indexer client; lazy wallet + refcounted chain connection; tier-4 Live; `npm run assert:lazy` |
@@ -159,7 +159,7 @@ the selection travelled with you. Now `lib/data/selection-store.ts` mirrors it
 to `localStorage`, consulted only when the URL is silent, so a shared link still
 wins. Clearing writes `[]` — distinct from "never pinned" — or the restore path
 would put the pins straight back and the clear button would look broken.
-Verified in a browser across nav, reload, a pass through `/network`, clear, and
+Verified in a browser across nav, reload, a pass through the network view, clear, and
 a shared link overriding stored pins.
 
 **3. "The five largest operators" was vague *and* nearly meaningless.** It
@@ -335,7 +335,7 @@ Raised by the user: none of the era index, era progress, era start/end, session
 position or election status appeared anywhere. All of it was already in
 `latest.json`'s anchors; only a single countdown tile used any of it.
 
-`components/era-status.tsx` on `/network` shows four cells — current era with
+`components/era-status.tsx` on the home page shows four cells — current era with
 progress, era start and end, session *n* of 6 with its own progress, and the
 election phase. **Tier 3 throughout**: derived in the browser from the anchors
 against the local clock. Verified in a browser that the values tick with
@@ -659,6 +659,26 @@ A first era is not an outlier to be trimmed, it is a different regime, and so is
 the first era after an operator rejoins. A median ignores both without needing
 to know which is which. `mean`/`stdDev` remain for the calculator, which
 projects from the *network* series.
+
+### Home and `/network` were one page written twice
+
+Home carried six tiles — return, staked, staking ratio, inflation, operator
+count, era countdown — and `/network` opened with the same figures in its Chain
+status and Rewards sections before going on to the charts behind them.
+
+The copies had **drifted**, which is the part worth remembering. Home's
+staking-ratio tile had been corrected to describe the inflation cap — a fixed
+140M POLYX yearly reward, binding near 50% staked — while `/network` still
+quoted the reward curve's 70% "ideal", a Substrate threshold this chain never
+reaches. Both were deployed, saying different things about the same number.
+Duplicated copy does not stay duplicated; it becomes two answers.
+
+`/network` is deleted, `/` is the network view, and the nav item is gone (the
+logo is the home link). Old links to `/network` 404 rather than redirect —
+acceptable only because this deployment was a day old with nothing linking to
+it. `NetworkPulse` is gone; its three entry cards moved to
+`components/entry-cards.tsx`, which is the one thing home had that `/network`
+had no equivalent of.
 
 ### The anchors the backfill exposed
 
