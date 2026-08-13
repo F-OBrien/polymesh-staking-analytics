@@ -17,6 +17,8 @@ const rollup: Rollup = {
   activeOperators: [10, 11, 12],
   nominatorCount: [50, 51, 52],
   avgCommission: [0.1, 0.1, 0.09],
+  commissionPaid: [0.7, 0.71, 0.648],
+  selfStakePaid: [0.1, 0.1, 0.1],
   aprP10: [0.18, 0.19, 0.2],
   aprP50: [0.2, 0.21, 0.22],
   aprP90: [0.22, 0.23, 0.24],
@@ -75,5 +77,33 @@ describe('prefersRollup', () => {
 
   it('is false with no range at all', () => {
     expect(prefersRollup(undefined)).toBe(false);
+  });
+});
+
+describe('rollupToSeries reward split', () => {
+  it('carries the split and closes it against the week reward', () => {
+    const series = rollupToSeries(rollup, { fromEra: 1, toEra: 21 });
+    const split = series?.rewardSplit;
+    if (!split) throw new Error('expected a reward split');
+
+    expect(split.commission).toEqual([0.7, 0.71, 0.648]);
+    expect(split.ownStake).toEqual([0.1, 0.1, 0.1]);
+
+    // Nominators are the remainder, so the parts reconstruct the reward the
+    // rollup recorded — the same invariant the per-era derivation holds to.
+    for (let i = 0; i < 3; i += 1) {
+      const parts =
+        (split.commission[i] as number) +
+        (split.ownStake[i] as number) +
+        (split.nominators[i] as number);
+      expect(parts).toBeCloseTo(split.gross[i] as number, 10);
+      expect(split.gross[i]).toBe(rollup.validatorReward[i]);
+    }
+  });
+
+  it('clips the split to the same buckets as everything else', () => {
+    const series = rollupToSeries(rollup, { fromEra: 8, toEra: 14 });
+    expect(series?.rewardSplit.commission).toEqual([0.71]);
+    expect(series?.rewardSplit.gross).toHaveLength(1);
   });
 });

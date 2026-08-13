@@ -11,6 +11,7 @@
  * chunks on disk guarantees it can never disagree with them.
  */
 
+import { deriveNetworkRewardSplit } from '../../lib/metrics/rewards';
 import type { ChunkRef, Rollup } from '../../lib/schemas/data';
 import type { DataStore } from './store';
 
@@ -33,6 +34,8 @@ interface EraRow {
   activeOperators: number;
   nominatorCount: number;
   avgCommission: number;
+  commissionPaid: number;
+  selfStakePaid: number;
   aprP10: number;
   aprP50: number;
   aprP90: number;
@@ -76,6 +79,8 @@ export async function buildRollup(
     const chunk = await store.readChunk(ref.from);
     if (!chunk) continue;
 
+    const split = deriveNetworkRewardSplit(chunk.operators, chunk.network, chunk.eras.length);
+
     for (const [i, era] of chunk.eras.entries()) {
       rows.push({
         era,
@@ -88,6 +93,11 @@ export async function buildRollup(
         activeOperators: chunk.network.activeOperators[i] ?? 0,
         nominatorCount: chunk.network.nominatorCount[i] ?? 0,
         avgCommission: chunk.network.avgCommission[i] ?? 0,
+        // From the chunk's own operator columns, which is the only place the
+        // split exists. Doing it here rather than in the client is what lets
+        // the weekly and the per-era views agree by construction.
+        commissionPaid: split.commission[i] ?? 0,
+        selfStakePaid: split.ownStake[i] ?? 0,
         aprP10: chunk.network.aprP10[i] ?? 0,
         aprP50: chunk.network.aprP50[i] ?? 0,
         aprP90: chunk.network.aprP90[i] ?? 0,
@@ -124,6 +134,19 @@ export async function buildRollup(
     activeOperators: buckets.map((b) => Math.round(mean(b.map((r) => r.activeOperators)))),
     nominatorCount: buckets.map((b) => Math.round(mean(b.map((r) => r.nominatorCount)))),
     avgCommission: buckets.map((b) => round(mean(b.map((r) => r.avgCommission)), 5)),
+    // Flows, so summed alongside `validatorReward` rather than averaged.
+    commissionPaid: buckets.map((b) =>
+      round(
+        b.reduce((sum, r) => sum + r.commissionPaid, 0),
+        3,
+      ),
+    ),
+    selfStakePaid: buckets.map((b) =>
+      round(
+        b.reduce((sum, r) => sum + r.selfStakePaid, 0),
+        3,
+      ),
+    ),
     // The band is averaged per percentile, not recomputed across the week. A
     // week's true 10th percentile would need every operator's every era, which
     // is the chunk data this file exists to avoid loading.

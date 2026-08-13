@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { useLatest, useManifest, useNetworkSeries } from '@/lib/data/queries';
+import { RewardSplitChart } from '@/components/reward-split-chart';
 import { useResolvedRange, EraRangeControl } from '@/components/era-range-control';
 import dynamic from 'next/dynamic';
 import { LazyChart, LazyEraSeriesChart } from '@/components/charts/lazy-chart';
@@ -57,7 +58,8 @@ export function NetworkAnalytics() {
   const manifest = useManifest();
   const latest = useLatest();
   const range = useResolvedRange(manifest.data);
-  const { series, isLoading, isError, error, isFetching, resolution } = useNetworkSeries(range);
+  const { series, isLoading, isError, error, isFetching, resolution, rewardSplit } =
+    useNetworkSeries(range);
 
   /**
    * Stated, not implied.
@@ -68,10 +70,19 @@ export function NetworkAnalytics() {
    * chart that changes its own granularity in silence is a chart that gets
    * misread.
    */
-  const grain =
+  const weeklySpan =
     resolution === 'week'
-      ? `weekly averages, eras ${formatNumber(range?.fromEra)}–${formatNumber(range?.toEra)}`
+      ? `eras ${formatNumber(range?.fromEra)}–${formatNumber(range?.toEra)}`
       : null;
+  const grain = weeklySpan ? `weekly averages, ${weeklySpan}` : null;
+  /**
+   * Rewards are a *flow*, and the rollup sums them over the week rather than
+   * averaging them — as it must, since averaging a payout would understate the
+   * week sevenfold. Calling that "weekly averages" alongside a y-axis reading
+   * 2.5M, against a per-era figure nearer 350K, invites the reader to conclude
+   * the chart disagrees with every other reward figure on the site.
+   */
+  const grainTotals = weeklySpan ? `weekly totals, ${weeklySpan}` : null;
   const pointNoun = resolution === 'week' ? 'weeks' : 'eras';
 
   /**
@@ -299,33 +310,20 @@ export function NetworkAnalytics() {
             </LazyChart>
           </div>
 
-          <LazyChart height={260} label="Rewards paid">
-            <LazyEraSeriesChart
-              title="Rewards paid each era"
-              pointNoun={pointNoun}
-              subtitle="Total validator payout, before commission is deducted."
-              series={series}
-              operators={
-                series
-                  ? [{ id: 'reward', label: 'Paid', values: series.network.validatorReward }]
-                  : []
-              }
-              format={polyx}
-              tickFormat={(v) => formatPolyx(v, { compact: true })}
-              yLabel="POLYX"
-              note={[
-                grain,
-                axisRangeNote(series?.network.validatorReward ?? [], (v) =>
-                  formatPolyx(v, { compact: true }),
-                ),
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              height={260}
-              loading={isLoading}
-              error={chartError}
-            />
-          </LazyChart>
+          {/* Was a single "rewards paid" line. The stack plots the same total
+              as its top edge and adds who received it, so the line it replaced
+              is a strict subset rather than a companion. */}
+          <RewardSplitChart
+            series={series}
+            precomputed={rewardSplit}
+            title="Rewards paid each era"
+            subtitle="Total validator payout, divided between the operators and the people backing them."
+            pointNoun={pointNoun}
+            grain={grainTotals}
+            height={300}
+            loading={isLoading}
+            error={chartError}
+          />
         </div>
       </section>
 

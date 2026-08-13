@@ -9,7 +9,7 @@ import {
   useManifest,
   useOperators,
 } from '@/lib/data/queries';
-import { useResolvedRange } from '@/components/era-range-control';
+import { EraRangeControl, useResolvedRange } from '@/components/era-range-control';
 import { useNow } from '@/lib/data/use-era-clock';
 import { useLive } from '@/lib/data/use-live';
 import {
@@ -246,6 +246,13 @@ export function MyStakingView() {
    * the last election is not in this era's exposure at all.
    */
   const labelOf = useMemo(() => buildLabeller(registry.data), [registry.data]);
+
+  // Unknown counts as active: a registry that has not loaded is not evidence
+  // that an operator has stopped.
+  const statusOf = useMemo(
+    () => (address: string) => registry.data?.[address]?.status ?? 'active',
+    [registry.data],
+  );
 
   /**
    * C24: this address's own operators, as APR series for the banded chart.
@@ -633,9 +640,20 @@ export function MyStakingView() {
       </section>
 
       <section aria-labelledby="my-operators" className="mt-12">
-        <h2 id="my-operators" className="m-0 text-[22px] leading-7 font-semibold tracking-tight">
-          Operators backed
-        </h2>
+        {/* The range control belongs here rather than at the top of the page.
+            Everything this window changes is inside this section: the
+            nominations table's return columns, the choice verdict, and both
+            charts. Above it are balances and a payout ledger, which an era
+            window has no bearing on — and the one figure up there that does
+            come from the era series, the network average, reads the newest era,
+            which every range ends at. At the top of the page the control would
+            claim to filter a page it mostly does not. */}
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 id="my-operators" className="m-0 text-[22px] leading-7 font-semibold tracking-tight">
+            Operators backed
+          </h2>
+          <EraRangeControl manifest={manifest.data} />
+        </div>
 
         {position.isLoading ? (
           <div className="mt-4">
@@ -766,7 +784,9 @@ export function MyStakingView() {
               <ProductionChart
                 series={series}
                 nameOf={labelOf}
+                statusOf={statusOf}
                 selected={nominations.slice(0, MAX_NAMED_SERIES)}
+                selectionNoun="nominated"
               />
             </div>
           </>

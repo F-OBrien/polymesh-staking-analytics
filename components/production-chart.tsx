@@ -1,12 +1,18 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { summariseProduction } from '@/lib/metrics/production';
 import { SERIES_TOKENS } from '@/lib/charts/palette';
 import { formatNumber, formatPercent } from '@/lib/format';
 import { LazyChart, LazyDeviationChart } from '@/components/charts/lazy-chart';
 import type { DeviationItem } from '@/components/charts/deviation-chart';
 import type { StitchedSeries } from '@/lib/data/series';
+import type { OperatorStatus } from '@/lib/schemas/data';
+import {
+  filterOperators,
+  OperatorStatusFilter,
+  type StatusFilter,
+} from '@/components/operator-status-filter';
 
 /**
  * Block production against what the authorship lottery predicts (C18).
@@ -35,8 +41,12 @@ export interface ProductionChartProps {
   series: StitchedSeries | null | undefined;
   /** Address to display name. */
   nameOf: (address: string) => string;
+  /** Address to registry status, for filtering and for greying out leavers. */
+  statusOf: (address: string) => OperatorStatus;
   /** Pinned operators, in palette order. */
   selected: readonly string[];
+  /** What `selected` is called here — "nominated" on the staking page. */
+  selectionNoun?: string | undefined;
   height?: number;
   loading?: boolean | undefined;
   error?: Error | null | undefined;
@@ -45,11 +55,16 @@ export interface ProductionChartProps {
 export function ProductionChart({
   series,
   nameOf,
+  statusOf,
   selected,
+  selectionNoun,
   height = 300,
   loading = false,
   error,
 }: ProductionChartProps) {
+  // Matches the directory table's default, and the returns chart beside it.
+  const [status, setStatus] = useState<StatusFilter>('active');
+
   const summary = useMemo(() => {
     if (!series) return null;
     return summariseProduction({
@@ -59,16 +74,22 @@ export function ProductionChart({
     });
   }, [series]);
 
-  const items = useMemo<DeviationItem[]>(() => {
+  const items = useMemo<(DeviationItem & { status: OperatorStatus })[]>(() => {
     if (!summary) return [];
     const slotOf = new Map(selected.map((address, i) => [address, i]));
 
     return summary.records.map((record) => {
       const slot = slotOf.get(record.address);
       const margin = SIGMA * record.standardError;
+      const operatorStatus = statusOf(record.address);
       return {
         id: record.address,
-        label: nameOf(record.address),
+        status: operatorStatus,
+        muted: operatorStatus === 'inactive',
+        label:
+          operatorStatus === 'inactive'
+            ? `${nameOf(record.address)} (no longer running)`
+            : nameOf(record.address),
         value: record.ratio,
         low: 1 - margin,
         high: 1 + margin,
@@ -80,11 +101,30 @@ export function ProductionChart({
         highlight: slot != null && slot < SERIES_TOKENS.length ? SERIES_TOKENS[slot] : undefined,
       };
     });
-  }, [summary, selected, nameOf]);
+  }, [summary, selected, nameOf, statusOf]);
+
+  /**
+   * Display only — `summary` still covers the whole field, so the expected
+   * line and the chance band do not shift when the selection changes.
+   */
+  const pinned = useMemo(() => new Set(selected), [selected]);
+  const visible = useMemo(() => filterOperators(items, status, pinned), [items, status, pinned]);
+
+  /**
+   * Pinned operators the filter is currently hiding.
+   *
+   * Surfaced next to the control because it is the one case where a missing bar
+   * is surprising — the reader chose those operators — and "Pinned only" is one
+   * selection away.
+   */
+  const hiddenPinned = useMemo(() => {
+    const shown = new Set(visible.map((item) => item.id));
+    return items.filter((item) => pinned.has(item.id) && !shown.has(item.id)).length;
+  }, [items, pinned, visible]);
 
   const outliers = useMemo(
-    () => (summary ? summary.records.filter((r) => Math.abs(r.z) > SIGMA).length : 0),
-    [summary],
+    () => visible.filter((item) => item.value > item.high || item.value < item.low).length,
+    [visible],
   );
 
   /**
@@ -97,8 +137,12 @@ export function ProductionChart({
    */
   const coverage = useMemo(() => {
     if (!summary || summary.records.length === 0) return undefined;
+    const shown =
+      visible.length === summary.records.length
+        ? `${summary.records.length} operators`
+        : `showing ${visible.length} of ${summary.records.length} operators`;
     const base =
-      `${summary.eras} era${summary.eras === 1 ? '' : 's'}, ${summary.records.length} operators. ` +
+      `${summary.eras} era${summary.eras === 1 ? '' : 's'}, ${shown}. ` +
       `Expected is the era's total points divided by the active set — authorship slots go per ` +
       `validator, not per unit of stake.`;
 
@@ -114,7 +158,7 @@ export function ProductionChart({
       `±${formatPercent(summary.luckSpread, { decimals: 1 })} is chance; ` +
       `±${formatPercent(summary.excessSpread, { decimals: 1 })} is genuine difference between operators.`
     );
-  }, [summary]);
+  }, [summary, visible.length]);
 
   const signed = (value: number) => formatPercent(value - 1, { decimals: 1, signed: true });
 
@@ -124,11 +168,22 @@ export function ProductionChart({
         title="Blocks produced, against expected"
         subtitle={
           outliers > 0
-            ? `${outliers} of ${items.length} operators are measurably off the mark. The rest are indistinguishable from each other.`
+            ? `${outliers} of ${visible.length} operators are measurably off the mark. The rest are indistinguishable from each other.`
             : 'Every operator is within the margin of error — on this range, no one is measurably ahead or behind.'
         }
         coverage={coverage}
-        items={items}
+        actions={
+          <OperatorStatusFilter
+            id="production-status"
+            value={status}
+            onChange={setStatus}
+            hidden={items.length - visible.length}
+            hiddenPinned={hiddenPinned}
+            showPinnedOption={pinned.size > 0}
+            {...(selectionNoun ? { selectionNoun } : {})}
+          />
+        }
+        items={visible}
         baseline={1}
         format={signed}
         tickFormat={signed}
@@ -139,7 +194,11 @@ export function ProductionChart({
         loading={loading}
         error={error}
         empty={
-          items.length === 0 ? 'No operator was in the active set for enough of this range.' : null
+          visible.length === 0
+            ? items.length === 0
+              ? 'No operator was in the active set for enough of this range.'
+              : 'No operator matches this status over this range.'
+            : null
         }
       />
     </LazyChart>

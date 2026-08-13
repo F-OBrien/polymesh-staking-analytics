@@ -10,6 +10,7 @@ import { rankOperators } from '@/lib/data/series';
 import { buildLabeller } from '@/lib/data/operator-label';
 import { OperatorsTable } from '@/components/operators-table';
 import { ProductionChart } from '@/components/production-chart';
+import { ReturnsChart } from '@/components/returns-chart';
 import { CommissionSpread } from '@/components/commission-spread';
 import { LazyChart, LazyEraSeriesChart } from '@/components/charts/lazy-chart';
 import { HeadingWithTip } from '@/components/info-tip';
@@ -86,6 +87,14 @@ export function OperatorsView() {
   // Several nodes share one identity's name, so a legend needs the address to
   // tell them apart — appended only where the name is actually ambiguous.
   const nameOf = useMemo(() => buildLabeller(registry.data), [registry.data]);
+
+  // An operator that has left the set still appears in a chart of what the
+  // range paid, drawn back rather than dropped. Unknown counts as active: a
+  // registry that has not loaded is not evidence that anyone has stopped.
+  const statusOf = useMemo(
+    () => (address: string) => registry.data?.[address]?.status ?? 'active',
+    [registry.data],
+  );
 
   const aprSeries = useMemo<NamedSeries[]>(() => {
     if (!series) return [];
@@ -256,16 +265,43 @@ export function OperatorsView() {
         </div>
       </section>
 
+      <section aria-labelledby="earned-heading" className="mt-12">
+        <HeadingWithTip
+          as="h2"
+          id="earned-heading"
+          className="mb-4"
+          title="What each operator paid"
+        >
+          The return a nominator actually received, over the era range selected above. Three things
+          move it: how many blocks the operator produced, what commission it charged, and how much
+          stake it was sharing the reward with. Each operator is measured over the eras it was
+          elected — in an era it sits out, the election moves your stake to your other choices, so
+          it costs you nothing.
+        </HeadingWithTip>
+
+        <ReturnsChart
+          series={series}
+          erasPerYear={erasPerYear}
+          nameOf={nameOf}
+          statusOf={statusOf}
+          selected={selected}
+          loading={isLoading}
+          error={chartError}
+        />
+      </section>
+
       <section aria-labelledby="production-heading" className="mt-12">
         <HeadingWithTip as="h2" id="production-heading" className="mb-4" title="Block production">
-          Every validator is offered roughly the same number of slots regardless of stake, so what
-          separates them is how many of those slots they actually fill. The differences are small,
-          and most of what looks like a difference is luck — the shaded band is how much.
+          The part of that return the operator actually controls. Every validator is offered roughly
+          the same number of slots regardless of stake, so what separates them is how many of those
+          slots they fill. The differences are small, and most of what looks like a difference is
+          luck — the shaded band is how much.
         </HeadingWithTip>
 
         <ProductionChart
           series={series}
           nameOf={nameOf}
+          statusOf={statusOf}
           selected={selected}
           loading={isLoading}
           error={chartError}

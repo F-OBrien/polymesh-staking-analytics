@@ -727,6 +727,25 @@ export async function generate(options: Options): Promise<void> {
   await writeJson(join(outDir, 'latest.json'), latest);
 
   // --- rollup-weekly.json ---
+  /**
+   * One era's reward split, mirroring `deriveRewardSplit`: commission off the
+   * whole reward first, then the remainder divided by stake. Written out here
+   * rather than imported because the generator works in its own `EraSample`
+   * shape, not in chunk columns.
+   */
+  const eraSplit = (s: EraSample) => {
+    let commission = 0;
+    let ownStake = 0;
+    for (const a of s.active) {
+      if (s.totalPoints <= 0 || a.stake <= 0) continue;
+      const gross = (s.validatorReward * a.points) / s.totalPoints;
+      const taken = gross * a.op.commission;
+      commission += taken;
+      ownStake += (gross - taken) * Math.min(1, a.ownStake / a.stake);
+    }
+    return { commission, ownStake };
+  };
+
   const weeks: EraSample[][] = [];
   for (let i = 0; i < samples.length; i += 7) weeks.push(samples.slice(i, i + 7));
   const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(xs.length, 1);
@@ -755,6 +774,21 @@ export async function generate(options: Options): Promise<void> {
       Math.round(avg(w.map((s) => s.active.reduce((sum, a) => sum + a.nominatorCount, 0)))),
     ),
     avgCommission: weeks.map((w) => round(avg(w.map((s) => s.avgCommission)))),
+    // Summed, not averaged — the split is a flow, like the reward it divides.
+    // Built from the same per-era arithmetic the pipeline uses so a fixture
+    // cannot describe a split the real rollup would not produce.
+    commissionPaid: weeks.map((w) =>
+      round(
+        w.reduce((a, s) => a + eraSplit(s).commission, 0),
+        2,
+      ),
+    ),
+    selfStakePaid: weeks.map((w) =>
+      round(
+        w.reduce((a, s) => a + eraSplit(s).ownStake, 0),
+        2,
+      ),
+    ),
     aprP10: weeks.map((w) => round(avg(w.map((s) => s.aprP10)))),
     aprP50: weeks.map((w) => round(avg(w.map((s) => s.aprP50)))),
     aprP90: weeks.map((w) => round(avg(w.map((s) => s.aprP90)))),

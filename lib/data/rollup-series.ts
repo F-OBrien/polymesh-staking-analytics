@@ -1,3 +1,4 @@
+import type { RewardSplit } from '@/lib/metrics/rewards';
 import type { NetworkSeries, Rollup } from '@/lib/schemas/data';
 import type { StitchedSeries } from './series';
 
@@ -26,6 +27,16 @@ import type { StitchedSeries } from './series';
 export interface RollupSeries extends StitchedSeries {
   /** Always `week` here. Charts state resolution rather than implying it. */
   resolution: 'week';
+  /**
+   * How each week's reward was divided, carried rather than derived.
+   *
+   * The one exception to "network only" above, and it earns it: the split is
+   * the *composition* of a network total, not a per-operator series, and it is
+   * three numbers a week against the hundred operators × 1,749 eras that
+   * deriving it here would cost. Without it the reward chart would silently
+   * lose its breakdown at exactly the ranges people use it for.
+   */
+  rewardSplit: RewardSplit;
 }
 
 /**
@@ -77,6 +88,19 @@ export function rollupToSeries(
     // and fabricating it from the network average would be a chart of nothing.
     operators: {},
     resolution: 'week',
+    rewardSplit: {
+      gross: pick(rollup.validatorReward),
+      commission: pick(rollup.commissionPaid),
+      ownStake: pick(rollup.selfStakePaid),
+      // The remainder, so the parts always sum to the reward exactly — the same
+      // rule the per-era derivation follows.
+      nominators: keep.map(
+        (i) =>
+          (rollup.validatorReward[i] as number) -
+          (rollup.commissionPaid[i] as number) -
+          (rollup.selfStakePaid[i] as number),
+      ),
+    },
   };
 }
 

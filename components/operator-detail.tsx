@@ -14,6 +14,7 @@ import { useResolvedRange, EraRangeControl } from '@/components/era-range-contro
 import { buildOperatorRows } from '@/lib/data/operator-rows';
 import { deriveOperatorApr, derivePointsShare, deriveSelfStakeRatio } from '@/lib/metrics/derive';
 import { LazyChart, LazyEraSeriesChart } from '@/components/charts/lazy-chart';
+import { RewardSplitChart } from '@/components/reward-split-chart';
 import { StatTile } from '@/components/stat-tile';
 import { AsOf, EmptyState, ErrorState } from '@/components/states';
 import { explorerAccountUrl } from '@/config/networks';
@@ -470,6 +471,16 @@ export function OperatorDetail({ address }: { address: string }) {
                   error={chartError}
                 />
               </LazyChart>
+
+              <RewardSplitChart
+                series={series}
+                address={address}
+                title="What this operator earned, in POLYX"
+                subtitle="Each bar is one era, divided between commission, the operator's own stake, and its nominators."
+                height={280}
+                loading={isLoading}
+                error={chartError}
+              />
             </div>
           </section>
         </>

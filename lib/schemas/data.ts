@@ -470,6 +470,27 @@ export const RollupSchema = z.object({
   aprP10: z.array(Ratio),
   aprP50: z.array(Ratio),
   aprP90: z.array(Ratio),
+  /**
+   * How the week's `validatorReward` was divided, in POLYX. Summed like the
+   * reward itself, since both are flows rather than balances.
+   *
+   * These exist here and *not* in `NetworkSeriesSchema` on purpose. A chunk
+   * carries every operator's commission and self-stake, so the split is already
+   * derivable from it exactly — adding a column would duplicate a derivable
+   * fact and, worse, would change the shape of files that are immutable once
+   * written and would all have to be rebuilt from the chain.
+   *
+   * The rollup has no such escape: it deliberately holds no per-operator
+   * columns, so a week's split cannot be recovered from it and has to be
+   * carried. It is re-derived from the chunks on every ingest, so the two
+   * resolutions cannot drift.
+   *
+   * `nominators` is the remainder and is not stored: it is
+   * `validatorReward − commissionPaid − selfStakePaid`, and storing it would
+   * create a fourth number that could disagree with the other three.
+   */
+  commissionPaid: z.array(PolyxAmount),
+  selfStakePaid: z.array(PolyxAmount),
 });
 
 // ---------------------------------------------------------------------------

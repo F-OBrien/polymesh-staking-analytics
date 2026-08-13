@@ -4,6 +4,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { DEFAULT_ERA_WINDOW } from '@/config/site';
 import { chunksForRange } from './chunking';
+import type { RewardSplit } from '@/lib/metrics/rewards';
 import { prefersRollup, rollupToSeries } from './rollup-series';
 import {
   fetchChunks,
@@ -262,6 +263,15 @@ export function useEraSeries(
  */
 export function useNetworkSeries(requested?: Partial<EraRange>): SeriesResult & {
   resolution: 'era' | 'week';
+  /**
+   * The reward split, when it came from the rollup.
+   *
+   * Returned explicitly rather than left for a caller to sniff off the series:
+   * at era resolution it is derivable from `operators` and at week resolution
+   * it can only be carried, and a caller that has to test which shape it got is
+   * a caller that will eventually forget to.
+   */
+  rewardSplit: RewardSplit | undefined;
 } {
   const manifest = useManifest();
   const range = resolveRange(manifest.data, requested);
@@ -285,8 +295,9 @@ export function useNetworkSeries(requested?: Partial<EraRange>): SeriesResult & 
       isError: manifest.isError,
       error: manifest.error as Error | null,
       resolution: 'week',
+      rewardSplit: weekly.rewardSplit,
     };
   }
 
-  return { ...eraSeries, resolution: 'era' };
+  return { ...eraSeries, resolution: 'era', rewardSplit: undefined };
 }
