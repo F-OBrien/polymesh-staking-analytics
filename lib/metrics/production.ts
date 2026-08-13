@@ -121,23 +121,38 @@ export interface ProductionInput {
   network: NullableNetwork<'totalPoints' | 'activeOperators'>;
   operators: Readonly<Record<string, Pick<OperatorSeries, 'points'>>>;
   /**
-   * Drop operators present for less than this fraction of the range.
+   * Drop operators present for less than this fraction of the range — up to
+   * `minEras`, which is the real requirement.
    *
    * An operator that joined for the last three eras of a ninety-era window has
    * an enormous standard error and would dominate both ends of a sorted chart.
    */
   minCoverage?: number;
+  /**
+   * The absolute floor, and the one that binds on a long range.
+   *
+   * Half of ninety eras is a fair ask; half of 1,750 is 875, which over the
+   * chain's whole history dropped most of the operators currently running and
+   * kept the long-dead ones that were present at the start. The error on this
+   * ratio falls as 1/√blocks and does not care how long the chain has been
+   * going, so the requirement is a count of eras, not a share of them.
+   */
+  minEras?: number;
   /** Overrides the GCD-derived award per block. See `pointsPerBlock`. */
   awardPerBlock?: number;
 }
 
 const DEFAULT_MIN_COVERAGE = 0.5;
 
+/** About six weeks — enough blocks for the lottery's error to settle. */
+const DEFAULT_MIN_ERAS = 30;
+
 export function summariseProduction({
   eras,
   network,
   operators,
   minCoverage = DEFAULT_MIN_COVERAGE,
+  minEras = DEFAULT_MIN_ERAS,
   awardPerBlock,
 }: ProductionInput): ProductionSummary {
   const empty: ProductionSummary = {
@@ -193,7 +208,8 @@ export function summariseProduction({
       variance += (eraExpected / perBlock) * (1 - 1 / active);
     }
 
-    if (count < usable.length * minCoverage || expected <= 0) continue;
+    // The fraction for a short range, the absolute floor for a long one.
+    if (count < Math.min(usable.length * minCoverage, minEras) || expected <= 0) continue;
 
     const expectedBlocks = expected / perBlock;
     records.push({
